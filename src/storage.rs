@@ -210,3 +210,30 @@ pub fn get_platform_analytics(env: &Env) -> PlatformAnalytics {
 pub fn save_platform_analytics(env: &Env, stats: &PlatformAnalytics) {
     env.storage().instance().set(&PLATFORM_STATS, stats);
 }
+
+// =============================================================================
+// Trade Detail storage (Issue #31)
+// =============================================================================
+
+use crate::types::TimelineEntry;
+
+const TIMELINE_PREFIX: &str = "TLINE";
+
+pub fn append_timeline_entry(env: &Env, trade_id: u64, entry: TimelineEntry) {
+    let key = (TIMELINE_PREFIX, trade_id);
+    let mut entries: Vec<TimelineEntry> = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Vec::new(env));
+    entries.push_back(entry);
+    env.storage().persistent().set(&key, &entries);
+}
+
+pub fn get_timeline(env: &Env, trade_id: u64) -> Vec<TimelineEntry> {
+    let key = (TIMELINE_PREFIX, trade_id);
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Vec::new(env))
+}

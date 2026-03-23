@@ -152,3 +152,41 @@ pub struct SystemConfig {
     pub trade_counter: u64,
     pub accumulated_fees: u64,
 }
+
+// =============================================================================
+// Trade Detail View (Issue #31)
+// =============================================================================
+
+/// A single entry in the trade status timeline
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TimelineEntry {
+    pub status: TradeStatus,
+    pub ledger: u32,
+}
+
+/// Context-sensitive actions available to a given viewer address
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TradeAction {
+    Fund,
+    Complete,
+    ConfirmReceipt,
+    RaiseDispute,
+    Cancel,
+    ResolveDispute,
+}
+
+/// Complete trade detail view returned by get_trade_detail
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TradeDetail {
+    /// Full trade data
+    pub trade: Trade,
+    /// Ordered status timeline (Created → current status)
+    pub timeline: Vec<TimelineEntry>,
+    /// Actions available to the viewer (empty if viewer is not a party)
+    pub available_actions: Vec<TradeAction>,
+    /// Net payout to seller after fee deduction
+    pub seller_payout: u64,
+}

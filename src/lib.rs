@@ -5,6 +5,7 @@ mod errors;
 mod events;
 mod history;
 mod storage;
+mod trade_detail;
 mod types;
 mod users;
 
@@ -17,13 +18,13 @@ use soroban_sdk::token::TokenClient;
 pub use errors::ContractError;
 pub use types::{
     DisputeResolution, HistoryFilter, HistoryPage, PlatformAnalytics, SortOrder, SystemConfig,
-    Trade, TradeStatus, TransactionRecord, UserAnalytics, UserPreference, UserProfile,
-    VerificationStatus,
+    Trade, TradeAction, TradeDetail, TradeStatus, TransactionRecord, TimelineEntry,
+    UserAnalytics, UserPreference, UserProfile, VerificationStatus,
 };
 
 use storage::{
-    get_accumulated_fees, get_admin, get_fee_bps, get_trade, get_usdc_token,
-    has_arbitrator, increment_trade_counter, index_trade_for_address,
+    append_timeline_entry, get_accumulated_fees, get_admin, get_fee_bps, get_trade,
+    get_usdc_token, has_arbitrator, increment_trade_counter, index_trade_for_address,
     is_initialized, remove_arbitrator, save_arbitrator, save_trade, set_accumulated_fees,
     set_admin, set_fee_bps, set_initialized, set_trade_counter, set_usdc_token,
 };
@@ -155,6 +156,8 @@ impl StellarEscrowContract {
         // Index trade for both parties so history lookups work for either address
         index_trade_for_address(&env, &seller, trade_id);
         index_trade_for_address(&env, &buyer, trade_id);
+        // Record timeline entry
+        append_timeline_entry(&env, trade_id, TimelineEntry { status: TradeStatus::Created, ledger: now });
         // Update analytics
         users::record_trade_created(&env, &seller, &buyer, amount);
         admin::on_trade_created(&env, amount);
@@ -182,6 +185,7 @@ impl StellarEscrowContract {
         trade.status = TradeStatus::Funded;
         trade.updated_at = env.ledger().sequence();
         save_trade(&env, trade_id, &trade);
+        append_timeline_entry(&env, trade_id, TimelineEntry { status: TradeStatus::Funded, ledger: trade.updated_at });
         events::emit_trade_funded(&env, trade_id);
         Ok(())
     }
@@ -199,6 +203,7 @@ impl StellarEscrowContract {
         trade.status = TradeStatus::Completed;
         trade.updated_at = env.ledger().sequence();
         save_trade(&env, trade_id, &trade);
+        append_timeline_entry(&env, trade_id, TimelineEntry { status: TradeStatus::Completed, ledger: trade.updated_at });
         events::emit_trade_completed(&env, trade_id);
         Ok(())
     }
@@ -249,6 +254,7 @@ impl StellarEscrowContract {
         trade.status = TradeStatus::Disputed;
         trade.updated_at = env.ledger().sequence();
         save_trade(&env, trade_id, &trade);
+        append_timeline_entry(&env, trade_id, TimelineEntry { status: TradeStatus::Disputed, ledger: trade.updated_at });
         users::record_trade_disputed(&env, &trade.seller, &trade.buyer);
         admin::on_trade_disputed(&env);
         events::emit_dispute_raised(&env, trade_id, caller);
@@ -302,6 +308,7 @@ impl StellarEscrowContract {
         trade.status = TradeStatus::Cancelled;
         trade.updated_at = env.ledger().sequence();
         save_trade(&env, trade_id, &trade);
+        append_timeline_entry(&env, trade_id, TimelineEntry { status: TradeStatus::Cancelled, ledger: trade.updated_at });
         users::record_trade_cancelled(&env, &trade.seller);
         admin::on_trade_cancelled(&env);
         events::emit_trade_cancelled(&env, trade_id);
@@ -485,5 +492,31 @@ impl StellarEscrowContract {
         let a = get_admin(&env)?;
         a.require_auth();
         admin::get_system_config(&env)
+    }
+
+    // -------------------------------------------------------------------------
+    // Trade Detail View (Issue #31)
+    // -------------------------------------------------------------------------
+
+    /// Get a complete trade detail view including timeline and available actions.
+    ///
+    /// - `trade_id` : trade to inspect
+    /// - `viewer`   : the calling address (determines which actions are shown)
+    pub fn get_trade_detail(
+        env: Env,
+        trade_id: u64,
+        viewer: Address,
+    ) -> Result<TradeDetail, ContractError> {
+        trade_detail::get_trade_detail(&env, trade_id, viewer)
+    }
+
+    /// Export a single trade as a CSV string.
+    ///
+    /// Columns: trade_id,amount,fee,seller_payout,status,created_at,updated_at
+    pub fn export_trade_csv(
+        env: Env,
+        trade_id: u64,
+    ) -> Result<soroban_sdk::String, ContractError> {
+        trade_detail::export_trade_csv(&env, trade_id)
     }
 }
