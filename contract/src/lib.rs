@@ -178,13 +178,14 @@ impl StellarEscrowContract {
         Ok(())
     }
 
-    /// Create a new trade with optional metadata
+    /// Create a new trade with optional metadata and optional time lock
     pub fn create_trade(
         env: Env,
         seller: Address,
         buyer: Address,
         amount: u64,
         arbitrator: Option<Address>,
+        expiry_time: Option<u64>,
         currency: Option<Address>,
         metadata: Option<TradeMetadata>,
         metadata: OptionalMetadata,
@@ -193,6 +194,13 @@ impl StellarEscrowContract {
         require_not_paused(&env)?;
         if amount == 0 {
             return Err(ContractError::InvalidAmount);
+        }
+        // expiry_time must be in the future (Stellar ledger time is UTC seconds)
+        if let Some(expiry) = expiry_time {
+            let now = env.ledger().timestamp();
+            if expiry <= now {
+                return Err(ContractError::InvalidExpiry);
+            }
         }
         seller.require_auth();
         if let Some(ref arb) = arbitrator {
@@ -216,6 +224,7 @@ impl StellarEscrowContract {
             fee,
             arbitrator,
             status: TradeStatus::Created,
+            expiry_time,
             currency: token,
             metadata,
         };
@@ -304,6 +313,13 @@ impl StellarEscrowContract {
         if trade.arbitrator.is_none() {
             return Err(ContractError::ArbitratorNotRegistered);
         }
+        // Cannot raise a dispute after the time lock has expired
+        if let Some(expiry) = trade.expiry_time {
+            if env.ledger().timestamp() >= expiry {
+                return Err(ContractError::TradeExpired);
+            }
+        }
+        let caller = env.invoker();
         if caller != trade.buyer && caller != trade.seller {
             return Err(ContractError::Unauthorized);
         }
@@ -364,6 +380,37 @@ impl StellarEscrowContract {
         trade.status = TradeStatus::Cancelled;
         save_trade(&env, trade_id, &trade);
         events::emit_trade_cancelled(&env, trade_id);
+        Ok(())
+    }
+
+    /// Claim a time-locked release: anyone can call this once the expiry has
+    /// passed and the trade is Funded or Completed (not Disputed/Cancelled).
+    /// Funds are released to the seller minus the platform fee.
+    pub fn claim_time_release(env: Env, trade_id: u64) -> Result<(), ContractError> {
+        if !is_initialized(&env) {
+            return Err(ContractError::NotInitialized);
+        }
+        require_not_paused(&env)?;
+
+        let trade = get_trade(&env, trade_id)?;
+        if trade.status != TradeStatus::Funded && trade.status != TradeStatus::Completed {
+            return Err(ContractError::InvalidStatus);
+        }
+        let expiry = trade.expiry_time.ok_or(ContractError::InvalidExpiry)?;
+        // Stellar ledger timestamp is always UTC seconds — no timezone handling needed
+        if env.ledger().timestamp() < expiry {
+            return Err(ContractError::TradeNotExpired);
+        }
+        let token = get_usdc_token(&env)?;
+        let token_client = token::Client::new(&env, &token);
+        let payout = trade.amount.checked_sub(trade.fee).ok_or(ContractError::Overflow)?;
+        token_client.transfer(&env.current_contract_address(), &trade.seller, &(payout as i128));
+        let current_fees = get_accumulated_fees(&env)?;
+        let new_fees = current_fees.checked_add(trade.fee).ok_or(ContractError::Overflow)?;
+        set_accumulated_fees(&env, new_fees);
+        tiers::record_volume(&env, &trade.seller, trade.amount)?;
+        tiers::record_volume(&env, &trade.buyer, trade.amount)?;
+        events::emit_time_released(&env, trade_id, trade.seller, payout);
         Ok(())
     }
 
@@ -591,6 +638,7 @@ impl StellarEscrowContract {
             fee,
             arbitrator: terms.default_arbitrator,
             status: TradeStatus::Created,
+            expiry_time: None,
             currency: get_usdc_token(&env)?,
             metadata: terms.default_metadata,
         };

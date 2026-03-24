@@ -88,6 +88,9 @@ pub struct Trade {
     pub fee: u64,
     pub arbitrator: Option<Address>,
     pub status: TradeStatus,
+    /// Optional Unix timestamp (seconds) after which funds auto-release to seller
+    /// if no dispute has been raised. Uses Stellar ledger time (UTC).
+    pub expiry_time: Option<u64>,
     /// Token address used for this trade (e.g. USDC, EURC, or any SAC token)
     pub currency: Address,
     /// Optional structured metadata (product info, shipping details, etc.)

@@ -120,6 +120,10 @@ pub fn emit_trade_from_template(env: &Env, trade_id: u64, template_id: u64, vers
         .publish((symbol_short!("tmpl_tr"),), (trade_id, template_id, version));
 }
 
+pub fn emit_time_released(env: &Env, trade_id: u64, seller: Address, payout: u64) {
+    env.events()
+        .publish((symbol_short!("time_rel"),), (trade_id, seller, payout));
+}
 pub fn emit_upgraded(env: &Env, new_version: u32) {
     env.events().publish((symbol_short!("upgraded"),), new_version);
 }
