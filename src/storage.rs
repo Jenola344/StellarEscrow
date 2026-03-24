@@ -12,6 +12,7 @@ const ACCUMULATED_FEES: &str = "ACC_FEES";
 const TRADE_PREFIX: &str = "TRADE";
 const ARBITRATOR_PREFIX: &str = "ARB";
 const ADDR_TRADES_PREFIX: &str = "ADDR_T";
+const PAUSED: &str = "PAUSED";
 
 pub fn is_initialized(env: &Env) -> bool {
     env.storage().instance().has(&INITIALIZED)
@@ -116,4 +117,16 @@ pub fn get_trade_ids_for_address(env: &Env, address: &Address) -> Vec<u64> {
         .persistent()
         .get(&key)
         .unwrap_or_else(|| Vec::new(env))
+}
+
+// ---------------------------------------------------------------------------
+// Pause state
+// ---------------------------------------------------------------------------
+
+pub fn set_paused(env: &Env, paused: bool) {
+    env.storage().instance().set(&PAUSED, &paused);
+}
+
+pub fn is_paused(env: &Env) -> bool {
+    env.storage().instance().get(&PAUSED).unwrap_or(false)
 }

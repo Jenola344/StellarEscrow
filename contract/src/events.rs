@@ -61,3 +61,16 @@ pub fn emit_fees_withdrawn(env: &Env, amount: u64, to: Address) {
     env.events()
         .publish((symbol_short!("fees_out"),), (amount, to));
 }
+
+pub fn emit_paused(env: &Env, admin: Address) {
+    env.events().publish((symbol_short!("paused"),), admin);
+}
+
+pub fn emit_unpaused(env: &Env, admin: Address) {
+    env.events().publish((symbol_short!("unpaused"),), admin);
+}
+
+pub fn emit_emergency_withdraw(env: &Env, to: Address, amount: u64) {
+    env.events()
+        .publish((symbol_short!("emrg_wd"),), (to, amount));
+}

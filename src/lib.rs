@@ -18,9 +18,18 @@ pub use types::{DisputeResolution, HistoryFilter, HistoryPage, SortOrder, Trade,
 use storage::{
     get_accumulated_fees, get_admin, get_fee_bps, get_trade, get_usdc_token,
     has_arbitrator, increment_trade_counter, index_trade_for_address,
-    is_initialized, remove_arbitrator, save_arbitrator, save_trade, set_accumulated_fees,
-    set_admin, set_fee_bps, set_initialized, set_trade_counter, set_usdc_token,
+    is_initialized, is_paused, remove_arbitrator, save_arbitrator, save_trade,
+    set_accumulated_fees, set_admin, set_fee_bps, set_initialized, set_paused,
+    set_trade_counter, set_usdc_token,
 };
+
+/// Return ContractPaused if the contract is currently paused.
+fn require_not_paused(env: &Env) -> Result<(), ContractError> {
+    if is_paused(env) {
+        return Err(ContractError::ContractPaused);
+    }
+    Ok(())
+}
 
 #[contract]
 pub struct StellarEscrowContract;
@@ -50,6 +59,7 @@ impl StellarEscrowContract {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
+        require_not_paused(&env)?;
         let admin = get_admin(&env)?;
         admin.require_auth();
         save_arbitrator(&env, &arbitrator);
@@ -62,6 +72,7 @@ impl StellarEscrowContract {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
+        require_not_paused(&env)?;
         let admin = get_admin(&env)?;
         admin.require_auth();
         remove_arbitrator(&env, &arbitrator);
@@ -74,6 +85,7 @@ impl StellarEscrowContract {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
+        require_not_paused(&env)?;
         if fee_bps > 10000 {
             return Err(ContractError::InvalidFeeBps);
         }
@@ -114,6 +126,7 @@ impl StellarEscrowContract {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
+        require_not_paused(&env)?;
         if amount == 0 {
             return Err(ContractError::InvalidAmount);
         }
@@ -157,6 +170,7 @@ impl StellarEscrowContract {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
+        require_not_paused(&env)?;
         let mut trade = get_trade(&env, trade_id)?;
         if trade.status != TradeStatus::Created {
             return Err(ContractError::InvalidStatus);
@@ -181,6 +195,7 @@ impl StellarEscrowContract {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
+        require_not_paused(&env)?;
         let mut trade = get_trade(&env, trade_id)?;
         if trade.status != TradeStatus::Funded {
             return Err(ContractError::InvalidStatus);
@@ -198,6 +213,7 @@ impl StellarEscrowContract {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
+        require_not_paused(&env)?;
         let trade = get_trade(&env, trade_id)?;
         if trade.status != TradeStatus::Completed {
             return Err(ContractError::InvalidStatus);
@@ -223,6 +239,7 @@ impl StellarEscrowContract {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
+        require_not_paused(&env)?;
         let mut trade = get_trade(&env, trade_id)?;
         if trade.status != TradeStatus::Funded && trade.status != TradeStatus::Completed {
             return Err(ContractError::InvalidStatus);
@@ -250,6 +267,7 @@ impl StellarEscrowContract {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
+        require_not_paused(&env)?;
         let trade = get_trade(&env, trade_id)?;
         if trade.status != TradeStatus::Disputed {
             return Err(ContractError::InvalidStatus);
@@ -280,6 +298,7 @@ impl StellarEscrowContract {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
+        require_not_paused(&env)?;
         let mut trade = get_trade(&env, trade_id)?;
         if trade.status != TradeStatus::Created {
             return Err(ContractError::InvalidStatus);
@@ -316,6 +335,62 @@ impl StellarEscrowContract {
         get_fee_bps(&env)
     }
 
+    // -------------------------------------------------------------------------
+    // Emergency Pause
+    // -------------------------------------------------------------------------
+
+    /// Pause all contract operations (admin only).
+    /// While paused, all state-mutating calls return ContractPaused.
+    pub fn pause(env: Env) -> Result<(), ContractError> {
+        if !is_initialized(&env) {
+            return Err(ContractError::NotInitialized);
+        }
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+        set_paused(&env, true);
+        events::emit_paused(&env, admin);
+        Ok(())
+    }
+
+    /// Unpause the contract, resuming normal operations (admin only).
+    pub fn unpause(env: Env) -> Result<(), ContractError> {
+        if !is_initialized(&env) {
+            return Err(ContractError::NotInitialized);
+        }
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+        set_paused(&env, false);
+        events::emit_unpaused(&env, admin);
+        Ok(())
+    }
+
+    /// Emergency withdrawal of all contract token balance to a destination
+    /// address (admin only). Allowed even while paused so funds can always
+    /// be recovered during an incident.
+    pub fn emergency_withdraw(env: Env, to: Address) -> Result<(), ContractError> {
+        if !is_initialized(&env) {
+            return Err(ContractError::NotInitialized);
+        }
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+        let token = get_usdc_token(&env)?;
+        let token_client = TokenClient::new(&env, &token);
+        // Use the full contract balance, not just accumulated fees
+        let balance = token_client.balance(&env.current_contract_address());
+        if balance > 0 {
+            token_client.transfer(&env.current_contract_address(), &to, &balance);
+        }
+        // Zero out accumulated fees to keep state consistent
+        set_accumulated_fees(&env, 0);
+        events::emit_emergency_withdraw(&env, to, balance as u64);
+        Ok(())
+    }
+
+    /// Returns true if the contract is currently paused.
+    pub fn is_paused(env: Env) -> bool {
+        is_paused(&env)
+    }
+
     /// Batch create trades - optimized for multiple trades
     pub fn batch_create_trades(
         env: Env,
@@ -325,6 +400,7 @@ impl StellarEscrowContract {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
+        require_not_paused(&env)?;
 
         // Enforce batch size limits (max 100 trades per batch for gas optimization)
         if trades.is_empty() {
@@ -366,6 +442,8 @@ impl StellarEscrowContract {
                 fee,
                 arbitrator,
                 status: TradeStatus::Created,
+                created_at: env.ledger().sequence(),
+                updated_at: env.ledger().sequence(),
             };
 
             save_trade(&env, trade_id, &trade);
@@ -388,6 +466,7 @@ impl StellarEscrowContract {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
+        require_not_paused(&env)?;
 
         // Enforce batch size limits for gas optimization
         if trade_ids.is_empty() {
@@ -400,35 +479,29 @@ impl StellarEscrowContract {
         buyer.require_auth();
 
         let token = get_usdc_token(&env)?;
-        let token_client = token::Client::new(&env, &token);
+        let token_client = TokenClient::new(&env, &token);
         let mut total_amount: u64 = 0;
 
         // First pass: validate all trades and calculate total amount
         for trade_id in trade_ids.iter() {
             let trade = get_trade(&env, trade_id)?;
-
             if trade.status != TradeStatus::Created {
                 return Err(ContractError::InvalidStatus);
             }
-
             if trade.buyer != buyer {
                 return Err(ContractError::Unauthorized);
             }
-
             total_amount = total_amount.checked_add(trade.amount).ok_or(ContractError::Overflow)?;
         }
 
         // Single transfer for all trades (gas optimization)
-        token_client.transfer(
-            &buyer,
-            &env.current_contract_address(),
-            &(total_amount as i128),
-        );
+        token_client.transfer(&buyer, &env.current_contract_address(), &(total_amount as i128));
 
         // Second pass: update trade statuses
         for trade_id in trade_ids.iter() {
             let mut trade = get_trade(&env, trade_id)?;
             trade.status = TradeStatus::Funded;
+            trade.updated_at = env.ledger().sequence();
             save_trade(&env, trade_id, &trade);
         }
 
@@ -447,6 +520,7 @@ impl StellarEscrowContract {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
+        require_not_paused(&env)?;
 
         // Enforce batch size limits for gas optimization
         if trade_ids.is_empty() {
@@ -459,7 +533,7 @@ impl StellarEscrowContract {
         buyer.require_auth();
 
         let token = get_usdc_token(&env)?;
-        let token_client = token::Client::new(&env, &token);
+        let token_client = TokenClient::new(&env, &token);
         let mut total_payout: u64 = 0;
         let mut total_fees: u64 = 0;
         let mut seller_payouts: soroban_sdk::Map<Address, u64> = soroban_sdk::Map::new(&env);
@@ -467,33 +541,23 @@ impl StellarEscrowContract {
         // First pass: validate all trades and calculate payouts
         for trade_id in trade_ids.iter() {
             let trade = get_trade(&env, trade_id)?;
-
             if trade.status != TradeStatus::Completed {
                 return Err(ContractError::InvalidStatus);
             }
-
             if trade.buyer != buyer {
                 return Err(ContractError::Unauthorized);
             }
-
             let payout = trade.amount.checked_sub(trade.fee).ok_or(ContractError::Overflow)?;
             total_payout = total_payout.checked_add(payout).ok_or(ContractError::Overflow)?;
             total_fees = total_fees.checked_add(trade.fee).ok_or(ContractError::Overflow)?;
-
-            // Accumulate payouts per seller for efficient transfers
-            let current_payout = seller_payouts.get(&trade.seller).copied().unwrap_or(0);
-            let new_payout = current_payout.checked_add(payout).ok_or(ContractError::Overflow)?;
-            seller_payouts.set(&trade.seller, new_payout);
+            let current = seller_payouts.get(trade.seller.clone()).unwrap_or(0);
+            let new_val = current.checked_add(payout).ok_or(ContractError::Overflow)?;
+            seller_payouts.set(trade.seller.clone(), new_val);
         }
 
         // Transfer to each seller (grouped by seller for efficiency)
-        for seller in seller_payouts.keys() {
-            let payout = seller_payouts.get(&seller).copied().unwrap_or(0);
-            token_client.transfer(
-                &env.current_contract_address(),
-                &seller,
-                &(payout as i128),
-            );
+        for (seller, payout) in seller_payouts.iter() {
+            token_client.transfer(&env.current_contract_address(), &seller, &(payout as i128));
         }
 
         // Update accumulated fees
@@ -506,19 +570,12 @@ impl StellarEscrowContract {
 
         Ok(())
     }
-}
 
     // -------------------------------------------------------------------------
     // Transaction history (Issue #38)
     // -------------------------------------------------------------------------
 
     /// Return paginated, filtered, sorted transaction history for an address.
-    ///
-    /// - `address`  : the seller or buyer address
-    /// - `filter`   : status / ledger-range filters (use None fields to skip)
-    /// - `sort`     : SortOrder::Ascending or SortOrder::Descending by created_at
-    /// - `offset`   : records to skip (for pagination)
-    /// - `limit`    : max records to return (capped at 100)
     pub fn get_transaction_history(
         env: Env,
         address: Address,
@@ -531,9 +588,7 @@ impl StellarEscrowContract {
     }
 
     /// Export transaction history for an address as a CSV string.
-    ///
     /// Columns: trade_id,amount,fee,status,created_at,updated_at
-    /// Status values: 0=Created 1=Funded 2=Completed 3=Disputed 4=Cancelled
     pub fn export_transaction_csv(
         env: Env,
         address: Address,

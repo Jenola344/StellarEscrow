@@ -9,9 +9,9 @@ const USDC_TOKEN: &str = "USDC";
 const FEE_BPS: &str = "FEE_BPS";
 const TRADE_COUNTER: &str = "COUNTER";
 const ACCUMULATED_FEES: &str = "ACC_FEES";
-
 const TRADE_PREFIX: &str = "TRADE";
 const ARBITRATOR_PREFIX: &str = "ARB";
+const PAUSED: &str = "PAUSED";
 
 // Initialization
 pub fn is_initialized(env: &Env) -> bool {
@@ -121,4 +121,16 @@ pub fn remove_arbitrator(env: &Env, arbitrator: &Address) {
 pub fn has_arbitrator(env: &Env, arbitrator: &Address) -> bool {
     let key = (ARBITRATOR_PREFIX, arbitrator);
     env.storage().persistent().has(&key)
+}
+
+// ---------------------------------------------------------------------------
+// Pause state
+// ---------------------------------------------------------------------------
+
+pub fn set_paused(env: &Env, paused: bool) {
+    env.storage().instance().set(&PAUSED, &paused);
+}
+
+pub fn is_paused(env: &Env) -> bool {
+    env.storage().instance().get(&PAUSED).unwrap_or(false)
 }

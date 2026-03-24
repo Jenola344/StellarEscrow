@@ -76,3 +76,16 @@ pub fn emit_batch_trades_confirmed(env: &Env, count: u32, total_payout: u64, tot
     env.events()
         .publish((symbol_short!("batch_cn"),), (count, total_payout, total_fees));
 }
+
+pub fn emit_paused(env: &Env, admin: Address) {
+    env.events().publish((symbol_short!("paused"),), admin);
+}
+
+pub fn emit_unpaused(env: &Env, admin: Address) {
+    env.events().publish((symbol_short!("unpaused"),), admin);
+}
+
+pub fn emit_emergency_withdraw(env: &Env, to: Address, amount: u64) {
+    env.events()
+        .publish((symbol_short!("emrg_wd"),), (to, amount));
+}

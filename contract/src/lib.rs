@@ -15,10 +15,17 @@ pub use types::{DisputeResolution, Trade, TradeStatus};
 
 use storage::{
     get_accumulated_fees, get_admin, get_fee_bps, get_trade, get_trade_counter, get_usdc_token,
-    has_arbitrator, has_initialized, increment_trade_counter, is_initialized, remove_arbitrator,
-    save_arbitrator, save_trade, set_accumulated_fees, set_admin, set_fee_bps, set_initialized,
-    set_trade_counter, set_usdc_token,
+    has_arbitrator, has_initialized, increment_trade_counter, is_initialized, is_paused,
+    remove_arbitrator, save_arbitrator, save_trade, set_accumulated_fees, set_admin, set_fee_bps,
+    set_initialized, set_paused, set_trade_counter, set_usdc_token,
 };
+
+fn require_not_paused(env: &Env) -> Result<(), ContractError> {
+    if is_paused(env) {
+        return Err(ContractError::ContractPaused);
+    }
+    Ok(())
+}
 
 #[contract]
 pub struct StellarEscrowContract;
@@ -52,6 +59,7 @@ impl StellarEscrowContract {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
+        require_not_paused(&env)?;
 
         let admin = get_admin(&env)?;
         admin.require_auth();
@@ -67,6 +75,7 @@ impl StellarEscrowContract {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
+        require_not_paused(&env)?;
 
         let admin = get_admin(&env)?;
         admin.require_auth();
@@ -82,6 +91,7 @@ impl StellarEscrowContract {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
+        require_not_paused(&env)?;
 
         if fee_bps > 10000 {
             return Err(ContractError::InvalidFeeBps);
@@ -132,6 +142,7 @@ impl StellarEscrowContract {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
+        require_not_paused(&env)?;
 
         if amount == 0 {
             return Err(ContractError::InvalidAmount);
@@ -174,6 +185,7 @@ impl StellarEscrowContract {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
+        require_not_paused(&env)?;
 
         let mut trade = get_trade(&env, trade_id)?;
 
@@ -204,6 +216,7 @@ impl StellarEscrowContract {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
+        require_not_paused(&env)?;
 
         let mut trade = get_trade(&env, trade_id)?;
 
@@ -225,6 +238,7 @@ impl StellarEscrowContract {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
+        require_not_paused(&env)?;
 
         let trade = get_trade(&env, trade_id)?;
 
@@ -259,6 +273,7 @@ impl StellarEscrowContract {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
+        require_not_paused(&env)?;
 
         let mut trade = get_trade(&env, trade_id)?;
 
@@ -293,6 +308,7 @@ impl StellarEscrowContract {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
+        require_not_paused(&env)?;
 
         let trade = get_trade(&env, trade_id)?;
 
@@ -333,6 +349,7 @@ impl StellarEscrowContract {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
+        require_not_paused(&env)?;
 
         let mut trade = get_trade(&env, trade_id)?;
 
@@ -367,6 +384,58 @@ impl StellarEscrowContract {
     /// Get platform fee in basis points
     pub fn get_platform_fee_bps(env: Env) -> Result<u32, ContractError> {
         get_fee_bps(&env)
+    }
+
+    // -------------------------------------------------------------------------
+    // Emergency Pause
+    // -------------------------------------------------------------------------
+
+    /// Pause all contract operations (admin only).
+    pub fn pause(env: Env) -> Result<(), ContractError> {
+        if !is_initialized(&env) {
+            return Err(ContractError::NotInitialized);
+        }
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+        set_paused(&env, true);
+        events::emit_paused(&env, admin);
+        Ok(())
+    }
+
+    /// Unpause the contract (admin only).
+    pub fn unpause(env: Env) -> Result<(), ContractError> {
+        if !is_initialized(&env) {
+            return Err(ContractError::NotInitialized);
+        }
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+        set_paused(&env, false);
+        events::emit_unpaused(&env, admin);
+        Ok(())
+    }
+
+    /// Emergency withdrawal of all contract token balance (admin only).
+    /// Allowed even while paused so funds can always be recovered.
+    pub fn emergency_withdraw(env: Env, to: Address) -> Result<(), ContractError> {
+        if !is_initialized(&env) {
+            return Err(ContractError::NotInitialized);
+        }
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+        let token = get_usdc_token(&env)?;
+        let token_client = token::Client::new(&env, &token);
+        let balance = token_client.balance(&env.current_contract_address());
+        if balance > 0 {
+            token_client.transfer(&env.current_contract_address(), &to, &balance);
+        }
+        set_accumulated_fees(&env, 0);
+        events::emit_emergency_withdraw(&env, to, balance as u64);
+        Ok(())
+    }
+
+    /// Returns true if the contract is currently paused.
+    pub fn is_paused(env: Env) -> bool {
+        is_paused(&env)
     }
 }
 
