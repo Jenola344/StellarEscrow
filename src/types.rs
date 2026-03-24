@@ -194,8 +194,10 @@ pub struct TradeTemplate {
     pub active: bool,
     pub created_at: u32,
     pub updated_at: u32,
+}
+
 // =============================================================================
-// User Management (Issue #64)
+// User Management
 // =============================================================================
 
 /// Verification status of a user, set by admin
@@ -245,7 +247,7 @@ pub struct UserAnalytics {
 }
 
 // =============================================================================
-// Admin Panel (Issue #35)
+// Admin Panel
 // =============================================================================
 
 /// Aggregated platform-wide analytics for the admin panel
@@ -272,7 +274,7 @@ pub struct SystemConfig {
 }
 
 // =============================================================================
-// Trade Detail View (Issue #31)
+// Trade Detail View
 // =============================================================================
 
 /// A single entry in the trade status timeline
@@ -307,4 +309,54 @@ pub struct TradeDetail {
     pub available_actions: Vec<TradeAction>,
     /// Net payout to seller after fee deduction
     pub seller_payout: u64,
+}
+
+// =============================================================================
+// Onboarding Flow
+// =============================================================================
+
+/// The ordered steps in the onboarding sequence.
+/// Each variant maps to a discrete, skippable tutorial/setup stage.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum OnboardingStep {
+    /// Step 1: User registers their profile (username + contact hashes)
+    RegisterProfile,
+    /// Step 2: User acknowledges platform fee structure and tier system
+    AcknowledgeFees,
+    /// Step 3: User creates their first trade template
+    CreateFirstTemplate,
+    /// Step 4: User creates their first trade
+    CreateFirstTrade,
+    /// Step 5: Onboarding complete
+    Completed,
+}
+
+/// Status of a single onboarding step
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum StepStatus {
+    /// Not yet started
+    Pending,
+    /// User completed this step
+    Done,
+    /// User explicitly skipped this step
+    Skipped,
+}
+
+/// Persistent onboarding progress record for a user
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OnboardingProgress {
+    pub address: Address,
+    /// The next step the user should take (or Completed)
+    pub current_step: OnboardingStep,
+    /// Status of each step in order: [RegisterProfile, AcknowledgeFees, CreateFirstTemplate, CreateFirstTrade]
+    pub step_statuses: Vec<StepStatus>,
+    /// Ledger sequence when onboarding was started
+    pub started_at: u32,
+    /// Ledger sequence of the last update (0 if never updated after start)
+    pub updated_at: u32,
+    /// Whether the user has fully completed or exited onboarding
+    pub finished: bool,
 }

@@ -132,3 +132,28 @@ pub fn emit_trade_from_template(env: &Env, trade_id: u64, template_id: u64, vers
     env.events()
         .publish((symbol_short!("tmpl_tr"),), (trade_id, template_id, version));
 }
+
+pub fn emit_onboarding_started(env: &Env, user: Address) {
+    env.events()
+        .publish((symbol_short!("ob_start"),), user);
+}
+
+pub fn emit_onboarding_step_done(env: &Env, user: Address, step_index: u32) {
+    env.events()
+        .publish((symbol_short!("ob_step"),), (user, step_index));
+}
+
+pub fn emit_onboarding_step_skipped(env: &Env, user: Address, step_index: u32) {
+    env.events()
+        .publish((symbol_short!("ob_skip"),), (user, step_index));
+}
+
+pub fn emit_onboarding_completed(env: &Env, user: Address) {
+    env.events()
+        .publish((symbol_short!("ob_done"),), user);
+}
+
+pub fn emit_onboarding_exited(env: &Env, user: Address) {
+    env.events()
+        .publish((symbol_short!("ob_exit"),), user);
+}

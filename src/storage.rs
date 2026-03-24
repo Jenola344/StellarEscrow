@@ -1,22 +1,42 @@
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::errors::ContractError;
-use crate::types::{TierConfig, Trade, TradeTemplate, UserTierInfo};
+use crate::types::{
+    OnboardingProgress, PlatformAnalytics, TierConfig, TimelineEntry, Trade, TradeTemplate,
+    UserAnalytics, UserPreference, UserProfile, UserTierInfo,
+};
 
+// ---------------------------------------------------------------------------
+// Instance-storage keys (contract-wide singletons)
+// ---------------------------------------------------------------------------
 const INITIALIZED: &str = "INIT";
 const ADMIN: &str = "ADMIN";
 const USDC_TOKEN: &str = "USDC";
 const FEE_BPS: &str = "FEE_BPS";
 const TRADE_COUNTER: &str = "COUNTER";
 const ACCUMULATED_FEES: &str = "ACC_FEES";
+const PAUSED: &str = "PAUSED";
+const TIER_CONFIG: &str = "TIER_CFG";
+const TEMPLATE_COUNTER: &str = "TMPL_CTR";
+const PLATFORM_STATS: &str = "PSTATS";
+
+// ---------------------------------------------------------------------------
+// Persistent-storage key prefixes (per-entity)
+// ---------------------------------------------------------------------------
 const TRADE_PREFIX: &str = "TRADE";
 const ARBITRATOR_PREFIX: &str = "ARB";
 const ADDR_TRADES_PREFIX: &str = "ADDR_T";
-const PAUSED: &str = "PAUSED";
-const TIER_CONFIG: &str = "TIER_CFG";
 const USER_TIER_PREFIX: &str = "UTIER";
-const TEMPLATE_COUNTER: &str = "TMPL_CTR";
 const TEMPLATE_PREFIX: &str = "TMPL";
+const USER_PREFIX: &str = "USER";
+const USER_PREF_PREFIX: &str = "UPREF";
+const USER_ANALYTICS_PREFIX: &str = "USTAT";
+const TIMELINE_PREFIX: &str = "TLINE";
+const ONBOARDING_PREFIX: &str = "ONBOARD";
+
+// =============================================================================
+// Initialization
+// =============================================================================
 
 pub fn is_initialized(env: &Env) -> bool {
     env.storage().instance().has(&INITIALIZED)
@@ -30,6 +50,10 @@ pub fn set_initialized(env: &Env) {
     env.storage().instance().set(&INITIALIZED, &true);
 }
 
+// =============================================================================
+// Admin
+// =============================================================================
+
 pub fn set_admin(env: &Env, admin: &Address) {
     env.storage().instance().set(&ADMIN, admin);
 }
@@ -37,6 +61,10 @@ pub fn set_admin(env: &Env, admin: &Address) {
 pub fn get_admin(env: &Env) -> Result<Address, ContractError> {
     env.storage().instance().get(&ADMIN).ok_or(ContractError::NotInitialized)
 }
+
+// =============================================================================
+// USDC token
+// =============================================================================
 
 pub fn set_usdc_token(env: &Env, token: &Address) {
     env.storage().instance().set(&USDC_TOKEN, token);
@@ -46,6 +74,10 @@ pub fn get_usdc_token(env: &Env) -> Result<Address, ContractError> {
     env.storage().instance().get(&USDC_TOKEN).ok_or(ContractError::NotInitialized)
 }
 
+// =============================================================================
+// Fee
+// =============================================================================
+
 pub fn set_fee_bps(env: &Env, fee_bps: u32) {
     env.storage().instance().set(&FEE_BPS, &fee_bps);
 }
@@ -53,6 +85,10 @@ pub fn set_fee_bps(env: &Env, fee_bps: u32) {
 pub fn get_fee_bps(env: &Env) -> Result<u32, ContractError> {
     env.storage().instance().get(&FEE_BPS).ok_or(ContractError::NotInitialized)
 }
+
+// =============================================================================
+// Trade counter
+// =============================================================================
 
 pub fn set_trade_counter(env: &Env, counter: u64) {
     env.storage().instance().set(&TRADE_COUNTER, &counter);
@@ -69,6 +105,10 @@ pub fn increment_trade_counter(env: &Env) -> Result<u64, ContractError> {
     Ok(next)
 }
 
+// =============================================================================
+// Accumulated fees
+// =============================================================================
+
 pub fn set_accumulated_fees(env: &Env, fees: u64) {
     env.storage().instance().set(&ACCUMULATED_FEES, &fees);
 }
@@ -76,6 +116,22 @@ pub fn set_accumulated_fees(env: &Env, fees: u64) {
 pub fn get_accumulated_fees(env: &Env) -> Result<u64, ContractError> {
     env.storage().instance().get(&ACCUMULATED_FEES).ok_or(ContractError::NotInitialized)
 }
+
+// =============================================================================
+// Pause state
+// =============================================================================
+
+pub fn set_paused(env: &Env, paused: bool) {
+    env.storage().instance().set(&PAUSED, &paused);
+}
+
+pub fn is_paused(env: &Env) -> bool {
+    env.storage().instance().get(&PAUSED).unwrap_or(false)
+}
+
+// =============================================================================
+// Trades
+// =============================================================================
 
 pub fn save_trade(env: &Env, trade_id: u64, trade: &Trade) {
     let key = (TRADE_PREFIX, trade_id);
@@ -86,6 +142,10 @@ pub fn get_trade(env: &Env, trade_id: u64) -> Result<Trade, ContractError> {
     let key = (TRADE_PREFIX, trade_id);
     env.storage().persistent().get(&key).ok_or(ContractError::TradeNotFound)
 }
+
+// =============================================================================
+// Arbitrators
+// =============================================================================
 
 pub fn save_arbitrator(env: &Env, arbitrator: &Address) {
     let key = (ARBITRATOR_PREFIX, arbitrator);
@@ -102,7 +162,11 @@ pub fn has_arbitrator(env: &Env, arbitrator: &Address) -> bool {
     env.storage().persistent().has(&key)
 }
 
-/// Append a trade ID to the address's trade index (call for both seller and buyer)
+// =============================================================================
+// Address → trade index
+// =============================================================================
+
+/// Append a trade ID to the address's trade index (call for both seller and buyer).
 pub fn index_trade_for_address(env: &Env, address: &Address, trade_id: u64) {
     let key = (ADDR_TRADES_PREFIX, address);
     let mut ids: Vec<u64> = env
@@ -114,7 +178,7 @@ pub fn index_trade_for_address(env: &Env, address: &Address, trade_id: u64) {
     env.storage().persistent().set(&key, &ids);
 }
 
-/// Return all trade IDs associated with an address
+/// Return all trade IDs associated with an address.
 pub fn get_trade_ids_for_address(env: &Env, address: &Address) -> Vec<u64> {
     let key = (ADDR_TRADES_PREFIX, address);
     env.storage()
@@ -123,12 +187,9 @@ pub fn get_trade_ids_for_address(env: &Env, address: &Address) -> Vec<u64> {
         .unwrap_or_else(|| Vec::new(env))
 }
 
-// ---------------------------------------------------------------------------
-// Pause state
-// ---------------------------------------------------------------------------
-
-// Tier config storage
-// ---------------------------------------------------------------------------
+// =============================================================================
+// Tier config
+// =============================================================================
 
 pub fn save_tier_config(env: &Env, config: &TierConfig) {
     env.storage().instance().set(&TIER_CONFIG, config);
@@ -138,9 +199,9 @@ pub fn get_tier_config(env: &Env) -> Option<TierConfig> {
     env.storage().instance().get(&TIER_CONFIG)
 }
 
-// ---------------------------------------------------------------------------
-// Per-user tier storage
-// ---------------------------------------------------------------------------
+// =============================================================================
+// Per-user tier
+// =============================================================================
 
 pub fn save_user_tier(env: &Env, user: &Address, info: &UserTierInfo) {
     let key = (USER_TIER_PREFIX, user);
@@ -152,9 +213,9 @@ pub fn get_user_tier(env: &Env, user: &Address) -> Option<UserTierInfo> {
     env.storage().persistent().get(&key)
 }
 
-// ---------------------------------------------------------------------------
-// Template storage
-// ---------------------------------------------------------------------------
+// =============================================================================
+// Templates
+// =============================================================================
 
 pub fn get_template_counter(env: &Env) -> u64 {
     env.storage().instance().get(&TEMPLATE_COUNTER).unwrap_or(0)
@@ -179,15 +240,11 @@ pub fn get_template(env: &Env, template_id: u64) -> Result<TradeTemplate, Contra
         .persistent()
         .get(&key)
         .ok_or(ContractError::TemplateNotFound)
-// =============================================================================
-// User Management storage (Issue #64)
-// =============================================================================
+}
 
-use crate::types::{UserAnalytics, UserPreference, UserProfile};
-
-const USER_PREFIX: &str = "USER";
-const USER_PREF_PREFIX: &str = "UPREF";
-const USER_ANALYTICS_PREFIX: &str = "USTAT";
+// =============================================================================
+// User profiles
+// =============================================================================
 
 pub fn save_user(env: &Env, profile: &UserProfile) {
     let key = (USER_PREFIX, &profile.address);
@@ -204,15 +261,27 @@ pub fn has_user(env: &Env, address: &Address) -> bool {
     env.storage().persistent().has(&key)
 }
 
+// =============================================================================
+// User preferences
+// =============================================================================
+
 pub fn save_preference(env: &Env, address: &Address, pref: &UserPreference) {
     let key = (USER_PREF_PREFIX, address, &pref.key);
     env.storage().persistent().set(&key, pref);
 }
 
-pub fn get_preference(env: &Env, address: &Address, pref_key: &soroban_sdk::String) -> Option<UserPreference> {
+pub fn get_preference(
+    env: &Env,
+    address: &Address,
+    pref_key: &soroban_sdk::String,
+) -> Option<UserPreference> {
     let key = (USER_PREF_PREFIX, address, pref_key);
     env.storage().persistent().get(&key)
 }
+
+// =============================================================================
+// User analytics
+// =============================================================================
 
 pub fn save_analytics(env: &Env, analytics: &UserAnalytics) {
     let key = (USER_ANALYTICS_PREFIX, &analytics.address);
@@ -237,21 +306,8 @@ pub fn get_analytics(env: &Env, address: &Address) -> UserAnalytics {
 }
 
 // =============================================================================
-// Admin Panel storage (Issue #35)
+// Platform analytics
 // =============================================================================
-
-use crate::types::PlatformAnalytics;
-
-const PAUSED: &str = "PAUSED";
-const PLATFORM_STATS: &str = "PSTATS";
-
-pub fn set_paused(env: &Env, paused: bool) {
-    env.storage().instance().set(&PAUSED, &paused);
-}
-
-pub fn is_paused(env: &Env) -> bool {
-    env.storage().instance().get(&PAUSED).unwrap_or(false)
-}
 
 pub fn get_platform_analytics(env: &Env) -> PlatformAnalytics {
     env.storage()
@@ -273,12 +329,8 @@ pub fn save_platform_analytics(env: &Env, stats: &PlatformAnalytics) {
 }
 
 // =============================================================================
-// Trade Detail storage (Issue #31)
+// Trade timeline
 // =============================================================================
-
-use crate::types::TimelineEntry;
-
-const TIMELINE_PREFIX: &str = "TLINE";
 
 pub fn append_timeline_entry(env: &Env, trade_id: u64, entry: TimelineEntry) {
     let key = (TIMELINE_PREFIX, trade_id);
@@ -297,4 +349,23 @@ pub fn get_timeline(env: &Env, trade_id: u64) -> Vec<TimelineEntry> {
         .persistent()
         .get(&key)
         .unwrap_or_else(|| Vec::new(env))
+}
+
+// =============================================================================
+// Onboarding
+// =============================================================================
+
+pub fn save_onboarding(env: &Env, progress: &OnboardingProgress) {
+    let key = (ONBOARDING_PREFIX, &progress.address);
+    env.storage().persistent().set(&key, progress);
+}
+
+pub fn get_onboarding(env: &Env, address: &Address) -> Option<OnboardingProgress> {
+    let key = (ONBOARDING_PREFIX, address);
+    env.storage().persistent().get(&key)
+}
+
+pub fn has_onboarding(env: &Env, address: &Address) -> bool {
+    let key = (ONBOARDING_PREFIX, address);
+    env.storage().persistent().has(&key)
 }
