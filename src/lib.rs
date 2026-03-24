@@ -5,8 +5,10 @@ mod analytics;
 mod errors;
 mod events;
 mod history;
+mod onboarding;
 mod storage;
 mod templates;
+mod theme;
 mod tiers;
 mod trade_detail;
 mod types;
@@ -21,6 +23,11 @@ use soroban_sdk::token::TokenClient;
 use types::{METADATA_MAX_ENTRIES, METADATA_MAX_VALUE_LEN};
 
 pub use errors::ContractError;
+pub use theme::{
+    FONT_LG, FONT_MD, FONT_SM,
+    PREF_FONT_SIZE, PREF_THEME_COLOR, PREF_THEME_MODE,
+    THEME_DARK, THEME_LIGHT, THEME_SYSTEM,
+};
 pub use types::{
     AnalyticsFilter, ChartPoint, DisputeResolution, FeeChartData, HistoryFilter, HistoryPage,
     MetadataEntry, PlatformAnalytics, SortOrder, StatusDistribution, SuccessRateData,
@@ -28,6 +35,14 @@ pub use types::{
     TemplateTerms, TemplateVersion, TransactionRecord, UserAnalytics, UserProfile,
     UserPreference, UserStatsSnapshot, UserTier, UserTierInfo, VerificationStatus,
     VolumeChartData,
+    DisputeResolution, HistoryFilter, HistoryPage, MetadataEntry, OnboardingProgress,
+    OnboardingStep, PlatformAnalytics, SortOrder, StepStatus, SystemConfig, TierConfig, Trade,
+    TradeAction, TradeDetail, TradeMetadata, TradeStatus, TradeTemplate, TemplateTerms,
+    TemplateVersion, TimelineEntry, TransactionRecord, UserAnalytics, UserPreference, UserProfile,
+    UserTier, UserTierInfo, VerificationStatus,
+    DashboardStats, DisputeResolution, HistoryFilter, HistoryPage, MetadataEntry, SortOrder,
+    TierConfig, Trade, TradeMetadata, TradeStatus, TradeTemplate, TemplateTerms,
+    TemplateVersion, TransactionRecord, UserTier, UserTierInfo, VolumeInRange,
 };
 
 use storage::{
@@ -48,7 +63,6 @@ fn require_not_paused(env: &Env) -> Result<(), ContractError> {
     Ok(())
 }
 
-/// Validate metadata entries against size limits.
 fn validate_metadata(meta: &TradeMetadata) -> Result<(), ContractError> {
     if meta.entries.len() > METADATA_MAX_ENTRIES {
         return Err(ContractError::MetadataTooManyEntries);
@@ -66,7 +80,10 @@ pub struct StellarEscrowContract;
 
 #[contractimpl]
 impl StellarEscrowContract {
-    /// Initialize the contract with admin, USDC token address, and platform fee
+    // -------------------------------------------------------------------------
+    // Initialization
+    // -------------------------------------------------------------------------
+
     pub fn initialize(env: Env, admin: Address, usdc_token: Address, fee_bps: u32) -> Result<(), ContractError> {
         if is_initialized(&env) {
             return Err(ContractError::AlreadyInitialized);
@@ -84,7 +101,10 @@ impl StellarEscrowContract {
         Ok(())
     }
 
-    /// Register an arbitrator (admin only)
+    // -------------------------------------------------------------------------
+    // Arbitrators
+    // -------------------------------------------------------------------------
+
     pub fn register_arbitrator(env: Env, arbitrator: Address) -> Result<(), ContractError> {
         if !is_initialized(&env) { return Err(ContractError::NotInitialized); }
         require_not_paused(&env)?;
@@ -95,7 +115,6 @@ impl StellarEscrowContract {
         Ok(())
     }
 
-    /// Remove an arbitrator (admin only)
     pub fn remove_arbitrator_fn(env: Env, arbitrator: Address) -> Result<(), ContractError> {
         if !is_initialized(&env) { return Err(ContractError::NotInitialized); }
         require_not_paused(&env)?;
@@ -106,7 +125,14 @@ impl StellarEscrowContract {
         Ok(())
     }
 
-    /// Update platform fee (admin only)
+    pub fn is_arbitrator_registered(env: Env, arbitrator: Address) -> bool {
+        has_arbitrator(&env, &arbitrator)
+    }
+
+    // -------------------------------------------------------------------------
+    // Fee management
+    // -------------------------------------------------------------------------
+
     pub fn update_fee(env: Env, fee_bps: u32) -> Result<(), ContractError> {
         if !is_initialized(&env) { return Err(ContractError::NotInitialized); }
         require_not_paused(&env)?;
@@ -118,7 +144,10 @@ impl StellarEscrowContract {
         Ok(())
     }
 
-    /// Withdraw accumulated fees (admin only)
+    pub fn get_platform_fee_bps(env: Env) -> Result<u32, ContractError> {
+        get_fee_bps(&env)
+    }
+
     pub fn withdraw_fees(env: Env, to: Address) -> Result<(), ContractError> {
         if !is_initialized(&env) { return Err(ContractError::NotInitialized); }
         let admin = get_admin(&env)?;
@@ -133,7 +162,14 @@ impl StellarEscrowContract {
         Ok(())
     }
 
-    /// Create a new trade with optional metadata
+    pub fn get_accumulated_fees(env: Env) -> Result<u64, ContractError> {
+        get_accumulated_fees(&env)
+    }
+
+    // -------------------------------------------------------------------------
+    // Trades
+    // -------------------------------------------------------------------------
+
     pub fn create_trade(
         env: Env,
         seller: Address,
@@ -155,19 +191,13 @@ impl StellarEscrowContract {
         let fee_bps = tiers::effective_fee_bps(&env, &seller, base_fee_bps);
         let fee = amount
             .checked_mul(fee_bps as u64).ok_or(ContractError::Overflow)?
+        let fee = amount.checked_mul(fee_bps as u64).ok_or(ContractError::Overflow)?
             .checked_div(10000).ok_or(ContractError::Overflow)?;
         let now = env.ledger().sequence();
         let trade = Trade {
-            id: trade_id,
-            seller: seller.clone(),
-            buyer: buyer.clone(),
-            amount,
-            fee,
-            arbitrator,
-            status: TradeStatus::Created,
-            created_at: now,
-            updated_at: now,
-            metadata,
+            id: trade_id, seller: seller.clone(), buyer: buyer.clone(),
+            amount, fee, arbitrator, status: TradeStatus::Created,
+            created_at: now, updated_at: now, metadata,
         };
         save_trade(&env, trade_id, &trade);
         index_trade_for_address(&env, &seller, trade_id);
@@ -179,7 +209,6 @@ impl StellarEscrowContract {
         Ok(trade_id)
     }
 
-    /// Buyer funds the trade
     pub fn fund_trade(env: Env, trade_id: u64) -> Result<(), ContractError> {
         if !is_initialized(&env) { return Err(ContractError::NotInitialized); }
         require_not_paused(&env)?;
@@ -197,7 +226,6 @@ impl StellarEscrowContract {
         Ok(())
     }
 
-    /// Seller marks trade as completed
     pub fn complete_trade(env: Env, trade_id: u64) -> Result<(), ContractError> {
         if !is_initialized(&env) { return Err(ContractError::NotInitialized); }
         require_not_paused(&env)?;
@@ -212,7 +240,6 @@ impl StellarEscrowContract {
         Ok(())
     }
 
-    /// Buyer confirms receipt and releases funds
     pub fn confirm_receipt(env: Env, trade_id: u64) -> Result<(), ContractError> {
         if !is_initialized(&env) { return Err(ContractError::NotInitialized); }
         require_not_paused(&env)?;
@@ -226,6 +253,7 @@ impl StellarEscrowContract {
         let current_fees = get_accumulated_fees(&env)?;
         let new_fees = current_fees.checked_add(trade.fee).ok_or(ContractError::Overflow)?;
         set_accumulated_fees(&env, new_fees);
+        set_accumulated_fees(&env, current_fees.checked_add(trade.fee).ok_or(ContractError::Overflow)?);
         tiers::record_volume(&env, &trade.seller, trade.amount)?;
         tiers::record_volume(&env, &trade.buyer, trade.amount)?;
         users::record_trade_completed(&env, &trade.seller, &trade.buyer);
@@ -234,7 +262,6 @@ impl StellarEscrowContract {
         Ok(())
     }
 
-    /// Raise a dispute
     pub fn raise_dispute(env: Env, trade_id: u64, caller: Address) -> Result<(), ContractError> {
         if !is_initialized(&env) { return Err(ContractError::NotInitialized); }
         require_not_paused(&env)?;
@@ -272,13 +299,11 @@ impl StellarEscrowContract {
         let payout = trade.amount.checked_sub(trade.fee).ok_or(ContractError::Overflow)?;
         token_client.transfer(&env.current_contract_address(), &recipient, &(payout as i128));
         let current_fees = get_accumulated_fees(&env)?;
-        let new_fees = current_fees.checked_add(trade.fee).ok_or(ContractError::Overflow)?;
-        set_accumulated_fees(&env, new_fees);
+        set_accumulated_fees(&env, current_fees.checked_add(trade.fee).ok_or(ContractError::Overflow)?);
         events::emit_dispute_resolved(&env, trade_id, resolution, recipient);
         Ok(())
     }
 
-    /// Cancel an unfunded trade
     pub fn cancel_trade(env: Env, trade_id: u64) -> Result<(), ContractError> {
         if !is_initialized(&env) { return Err(ContractError::NotInitialized); }
         require_not_paused(&env)?;
@@ -313,10 +338,24 @@ impl StellarEscrowContract {
 
     pub fn get_platform_fee_bps(env: Env) -> Result<u32, ContractError> {
         get_fee_bps(&env)
+    pub fn update_trade_metadata(env: Env, trade_id: u64, metadata: Option<TradeMetadata>) -> Result<(), ContractError> {
+        if !is_initialized(&env) { return Err(ContractError::NotInitialized); }
+        let mut trade = get_trade(&env, trade_id)?;
+        trade.seller.require_auth();
+        if let Some(ref meta) = metadata { validate_metadata(meta)?; }
+        trade.metadata = metadata;
+        trade.updated_at = env.ledger().sequence();
+        save_trade(&env, trade_id, &trade);
+        events::emit_metadata_updated(&env, trade_id);
+        Ok(())
+    }
+
+    pub fn get_trade_metadata(env: Env, trade_id: u64) -> Result<Option<TradeMetadata>, ContractError> {
+        Ok(get_trade(&env, trade_id)?.metadata)
     }
 
     // -------------------------------------------------------------------------
-    // Emergency Pause
+    // Pause / emergency
     // -------------------------------------------------------------------------
 
     pub fn pause(env: Env) -> Result<(), ContractError> {
@@ -335,6 +374,10 @@ impl StellarEscrowContract {
         set_paused(&env, false);
         events::emit_unpaused(&env, admin);
         Ok(())
+    }
+
+    pub fn is_paused(env: Env) -> bool {
+        is_paused(&env)
     }
 
     pub fn emergency_withdraw(env: Env, to: Address) -> Result<(), ContractError> {
@@ -416,6 +459,12 @@ impl StellarEscrowContract {
                 created_at: now,
                 updated_at: now,
                 metadata: None,
+            let fee = amount.checked_mul(fee_bps as u64).ok_or(ContractError::Overflow)?
+                .checked_div(10000).ok_or(ContractError::Overflow)?;
+            let trade = Trade {
+                id: trade_id, seller: seller.clone(), buyer: buyer.clone(),
+                amount, fee, arbitrator, status: TradeStatus::Created,
+                created_at: now, updated_at: now, metadata: None,
             };
             save_trade(&env, trade_id, &trade);
             index_trade_for_address(&env, &seller, trade_id);
@@ -432,6 +481,7 @@ impl StellarEscrowContract {
         buyer: Address,
         trade_ids: soroban_sdk::Vec<u64>,
     ) -> Result<(), ContractError> {
+    pub fn batch_fund_trades(env: Env, buyer: Address, trade_ids: soroban_sdk::Vec<u64>) -> Result<(), ContractError> {
         if !is_initialized(&env) { return Err(ContractError::NotInitialized); }
         require_not_paused(&env)?;
         if trade_ids.is_empty() { return Err(ContractError::EmptyBatch); }
@@ -463,6 +513,7 @@ impl StellarEscrowContract {
         buyer: Address,
         trade_ids: soroban_sdk::Vec<u64>,
     ) -> Result<(), ContractError> {
+    pub fn batch_confirm_trades(env: Env, buyer: Address, trade_ids: soroban_sdk::Vec<u64>) -> Result<(), ContractError> {
         if !is_initialized(&env) { return Err(ContractError::NotInitialized); }
         require_not_paused(&env)?;
         if trade_ids.is_empty() { return Err(ContractError::EmptyBatch); }
@@ -574,18 +625,13 @@ impl StellarEscrowContract {
         let fee_bps = tiers::effective_fee_bps(&env, &seller, base_fee_bps);
         let fee = amount
             .checked_mul(fee_bps as u64).ok_or(ContractError::Overflow)?
+        let fee = amount.checked_mul(fee_bps as u64).ok_or(ContractError::Overflow)?
             .checked_div(10000).ok_or(ContractError::Overflow)?;
         let now = env.ledger().sequence();
         let trade = Trade {
-            id: trade_id,
-            seller: seller.clone(),
-            buyer: buyer.clone(),
-            amount,
-            fee,
-            arbitrator: terms.default_arbitrator,
-            status: TradeStatus::Created,
-            created_at: now,
-            updated_at: now,
+            id: trade_id, seller: seller.clone(), buyer: buyer.clone(),
+            amount, fee, arbitrator: terms.default_arbitrator,
+            status: TradeStatus::Created, created_at: now, updated_at: now,
             metadata: terms.default_metadata,
         };
         save_trade(&env, trade_id, &trade);
@@ -647,6 +693,26 @@ impl StellarEscrowContract {
         users::get_user_analytics(&env, &address)
     }
 
+    /// Update the avatar hash for a user (SHA-256 of the off-chain image).
+    /// Pass `None` to remove the avatar.
+    pub fn update_avatar(
+        env: Env,
+        address: Address,
+        avatar_hash: Option<soroban_sdk::Bytes>,
+    ) -> Result<(), ContractError> {
+        users::update_avatar(&env, address, avatar_hash)
+    }
+
+    /// Update security settings: 2FA flag and session timeout (seconds).
+    pub fn update_security_settings(
+        env: Env,
+        address: Address,
+        two_fa_enabled: bool,
+        session_timeout_secs: u32,
+    ) -> Result<(), ContractError> {
+        users::update_security_settings(&env, address, two_fa_enabled, session_timeout_secs)
+    }
+
     // -------------------------------------------------------------------------
     // Admin Panel
     // -------------------------------------------------------------------------
@@ -678,6 +744,30 @@ impl StellarEscrowContract {
         Ok(admin::get_analytics(&env))
     }
 
+    }
+
+    /// Get full dashboard snapshot: platform stats, success rate, dispute rate, avg volume.
+    pub fn get_dashboard(env: Env) -> Result<DashboardStats, ContractError> {
+        if !is_initialized(&env) {
+            return Err(ContractError::NotInitialized);
+        }
+        Ok(admin::get_dashboard(&env))
+    }
+
+    /// Get trade volume and counts for an address within a ledger range (date-range charts).
+    pub fn get_volume_in_range(
+        env: Env,
+        address: Address,
+        from_ledger: u32,
+        to_ledger: u32,
+    ) -> Result<VolumeInRange, ContractError> {
+        if !is_initialized(&env) {
+            return Err(ContractError::NotInitialized);
+        }
+        admin::get_volume_in_range(&env, &address, from_ledger, to_ledger)
+    }
+
+    /// Get system configuration snapshot (fee, pause state, counters).
     pub fn get_system_config(env: Env) -> Result<SystemConfig, ContractError> {
         if !is_initialized(&env) { return Err(ContractError::NotInitialized); }
         let a = get_admin(&env)?;
@@ -746,5 +836,46 @@ impl StellarEscrowContract {
     pub fn export_user_stats_csv(env: Env, address: Address) -> soroban_sdk::String {
         let snapshot = analytics::get_user_stats(&env, &address);
         analytics::export_user_stats_csv(&env, &snapshot)
+    // Onboarding Flow
+    // -------------------------------------------------------------------------
+
+    /// Start (or resume) the onboarding flow for a user.
+    /// Idempotent — safe to call multiple times; returns existing progress if
+    /// already started. Returns AlreadyInitialized if onboarding is finished.
+    pub fn start_onboarding(env: Env, user: Address) -> Result<OnboardingProgress, ContractError> {
+        if !is_initialized(&env) { return Err(ContractError::NotInitialized); }
+        onboarding::start_onboarding(&env, user)
+    }
+
+    /// Mark a specific onboarding step (0-based index) as completed.
+    /// The step must currently be Pending; completing an already-done or
+    /// skipped step returns InvalidStatus.
+    pub fn complete_onboarding_step(env: Env, user: Address, step_index: u32) -> Result<OnboardingProgress, ContractError> {
+        if !is_initialized(&env) { return Err(ContractError::NotInitialized); }
+        onboarding::complete_step(&env, user, step_index)
+    }
+
+    /// Skip a specific onboarding step (0-based index).
+    /// The step must currently be Pending. Skipping does not block progress.
+    pub fn skip_onboarding_step(env: Env, user: Address, step_index: u32) -> Result<OnboardingProgress, ContractError> {
+        if !is_initialized(&env) { return Err(ContractError::NotInitialized); }
+        onboarding::skip_step(&env, user, step_index)
+    }
+
+    /// Exit onboarding entirely. All remaining Pending steps are marked
+    /// Skipped and the flow is marked finished. No existing data is modified.
+    pub fn exit_onboarding(env: Env, user: Address) -> Result<OnboardingProgress, ContractError> {
+        if !is_initialized(&env) { return Err(ContractError::NotInitialized); }
+        onboarding::exit_onboarding(&env, user)
+    }
+
+    /// Return the current onboarding progress for a user, or None if not started.
+    pub fn get_onboarding_progress(env: Env, user: Address) -> Option<OnboardingProgress> {
+        onboarding::get_progress(&env, &user)
+    }
+
+    /// Return true if the user has an active (started, not finished) onboarding flow.
+    pub fn is_onboarding_active(env: Env, user: Address) -> bool {
+        onboarding::is_onboarding_active(&env, &user)
     }
 }

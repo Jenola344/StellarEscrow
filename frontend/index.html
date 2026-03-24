@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="StellarEscrow - Accessible decentralized escrow dashboard for peer-to-peer USDC trades on Stellar blockchain">
+    <meta name="theme-color" content="#1a1a2e">
+    <title>StellarEscrow Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Skip to main content link for screen readers -->
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+    
+    <!-- High contrast mode toggle -->
+    <button 
+        id="contrast-toggle"
+        class="contrast-toggle"
+        type="button"
+        aria-pressed="false"
+        aria-label="Toggle high contrast mode"
+    >
+        <span class="toggle-icon" aria-hidden="true">◐</span>
+        <span class="toggle-text">High Contrast</span>
+    </button>
+
+    <!-- Live region for announcements -->
+    <div id="live-region" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
+
+    <header role="banner">
+        <nav role="navigation" aria-label="Main navigation">
+            <div class="nav-container">
+                <h1 class="logo">
+                    <a href="/" aria-label="StellarEscrow Home">
+                        <span class="logo-icon" aria-hidden="true">◇</span>
+                        <span>StellarEscrow</span>
+                    </a>
+                </h1>
+                <button 
+                    id="mobile-menu-btn"
+                    class="mobile-menu-btn"
+                    type="button"
+                    aria-expanded="false"
+                    aria-controls="main-menu"
+                    aria-label="Toggle navigation menu"
+                >
+                    <span class="hamburger" aria-hidden="true"></span>
+                </button>
+                <ul id="main-menu" class="nav-menu" role="menubar">
+                    <li role="none"><a href="#dashboard" role="menuitem" class="nav-link active" aria-current="page">Dashboard</a></li>
+                    <li role="none"><a href="#events" role="menuitem" class="nav-link">View Events</a></li>
+                    <li role="none"><a href="#search" role="menuitem" class="nav-link">Search</a></li>
+                    <li role="none"><a href="#help" role="menuitem" class="nav-link">Help Center</a></li>
+                    <li role="none"><a href="#api-docs" role="menuitem" class="nav-link">API Documentation</a></li>
+                </ul>
+            </div>
+        </nav>
+    </header>
+
+    <main id="main-content" role="main">
+        <!-- Dashboard Section -->
+        <section id="dashboard" aria-labelledby="dashboard-heading" class="section">
+            <div class="container">
+                <h2 id="dashboard-heading" class="section-title">Dashboard</h2>
+                
+                <!-- Status Cards -->
+                <div class="status-grid" role="region" aria-label="System status overview">
+                    <article class="status-card" role="article" aria-labelledby="health-status">
+                        <h3 id="health-status" class="card-title">System Health</h3>
+                        <div id="health-indicator" class="status-indicator" role="status" aria-live="polite">
+                            <span class="indicator-dot" aria-hidden="true"></span>
+                            <span class="indicator-text">Checking...</span>
+                        </div>
+                    </article>
+                    <article class="status-card" role="article" aria-labelledby="events-count">
+                        <h3 id="events-count" class="card-title">Total Events</h3>
+                        <p class="card-value" id="total-events">--</p>
+                    </article>
+                    <article class="status-card" role="article" aria-labelledby="ws-status">
+                        <h3 id="ws-status" class="card-title">WebSocket</h3>
+                        <div id="ws-indicator" class="status-indicator" role="status" aria-live="polite">
+                            <span class="indicator-dot disconnected" aria-hidden="true"></span>
+                            <span class="indicator-text">Disconnected</span>
+                        </div>
+                    </article>
+                </div>
+
+                <!-- Real-time Events Feed -->
+                <div class="events-feed" role="region" aria-label="Real-time events feed">
+                    <div class="feed-header">
+                        <h3 id="feed-heading">Real-time Events</h3>
+                        <button 
+                            id="clear-feed-btn"
+                            type="button"
+                            class="btn btn-secondary"
+                            aria-label="Clear events feed"
+                        >
+                            Clear Feed
+                        </button>
+                    </div>
+                    <div 
+                        id="events-list" 
+                        class="events-list"
+                        role="log"
+                        aria-live="polite"
+                        aria-label="Events log"
+                        aria-relevant="additions"
+                        tabindex="0"
+                    >
+                        <p class="empty-state">Connecting to event stream...</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Events Section -->
+        <section id="events" aria-labelledby="events-heading" class="section">
+            <div class="container">
+                <h2 id="events-heading" class="section-title">Event Explorer</h2>
+                
+                <!-- Search Filters -->
+                <form id="events-filter-form" class="filter-form" role="search" aria-label="Events filter form">
+                    <div class="filter-group">
+                        <label for="event-type-filter" class="filter-label">Event Type</label>
+                        <select 
+                            id="event-type-filter" 
+                            class="filter-select"
+                            aria-describedby="event-type-help"
+                        >
+                            <option value="">All Events</option>
+                            <option value="trade_created">Trade Created</option>
+                            <option value="trade_funded">Trade Funded</option>
+                            <option value="trade_completed">Trade Completed</option>
+                            <option value="trade_confirmed">Trade Confirmed</option>
+                            <option value="trade_disputed">Trade Disputed</option>
+                            <option value="trade_cancelled">Trade Cancelled</option>
+                            <option value="dispute_resolved">Dispute Resolved</option>
+                        </select>
+                        <span id="event-type-help" class="visually-hidden">
+                            Filter events by type to narrow down results
+                        </span>
+                    </div>
+                    <div class="filter-group">
+                        <label for="trade-id-filter" class="filter-label">Trade ID</label>
+                        <input 
+                            type="number" 
+                            id="trade-id-filter" 
+                            class="filter-input"
+                            placeholder="Enter trade ID"
+                            min="0"
+                            aria-describedby="trade-id-help"
+                        >
+                        <span id="trade-id-help" class="visually-hidden">
+                            Enter a specific trade ID to filter events
+                        </span>
+                    </div>
+                    <div class="filter-group">
+                        <label for="limit-select" class="filter-label">Results per Page</label>
+                        <select id="limit-select" class="filter-select" aria-label="Number of results to display">
+                            <option value="10">10</option>
+                            <option value="25">25</option>
+                            <option value="50" selected>50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="offset-input" class="filter-label">Page Offset</label>
+                        <input 
+                            type="number" 
+                            id="offset-input" 
+                            class="filter-input"
+                            placeholder="0"
+                            min="0"
+                            aria-label="Pagination offset"
+                        >
+                    </div>
+                    <button type="submit" class="btn btn-primary" aria-label="Apply filters to events">
+                        Apply Filters
+                    </button>
+                </form>
+
+                <!-- Events Table -->
+                <div class="table-container" role="region" aria-label="Events table">
+                    <table 
+                        id="events-table" 
+                        class="data-table"
+                        aria-describedby="events-table-caption"
+                    >
+                        <caption id="events-table-caption" class="visually-hidden">
+                            List of indexed contract events with columns for timestamp, type, trade ID, and details
+                        </caption>
+                        <thead>
+                            <tr>
+                                <th scope="col" abbr="Timestamp">Time</th>
+                                <th scope="col">Type</th>
+                                <th scope="col">Trade ID</th>
+                                <th scope="col">Details</th>
+                            </tr>
+                        </thead>
+                        <tbody id="events-table-body">
+                            <tr>
+                                <td colspan="4" class="empty-state">No events loaded. Apply filters to search.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Pagination -->
+                <nav id="events-pagination" class="pagination" aria-label="Events pagination">
+                    <button 
+                        type="button" 
+                        class="btn btn-secondary pagination-btn"
+                        data-action="prev"
+                        aria-label="Previous page of events"
+                    >
+                        ← Previous
+                    </button>
+                    <span id="pagination-info" class="pagination-info" aria-live="polite">
+                        Page 1
+                    </span>
+                    <button 
+                        type="button" 
+                        class="btn btn-secondary pagination-btn"
+                        data-action="next"
+                        aria-label="Next page of events"
+                    >
+                        Next →
+                    </button>
+                </nav>
+            </div>
+        </section>
+
+        <!-- Search Section -->
+        <section id="search" aria-labelledby="search-heading" class="section">
+            <div class="container">
+                <h2 id="search-heading" class="section-title">Global Search</h2>
+                
+                <!-- Search Form -->
+                <form id="search-form" class="search-form" role="search" aria-label="Global search">
+                    <div class="search-input-group">
+                        <label for="search-input" class="visually-hidden">Search trades, users, and arbitrators</label>
+                        <input 
+                            type="search" 
+                            id="search-input" 
+                            class="search-input"
+                            placeholder="Search trades, users, arbitrators..."
+                            aria-describedby="search-help"
+                            autocomplete="off"
+                        >
+                        <button 
+                            type="submit" 
+                            class="btn btn-primary search-btn"
+                            aria-label="Submit search"
+                        >
+                            Search
+                        </button>
+                        <button 
+                            type="button"
+                            id="voice-search-btn"
+                            class="btn btn-icon"
+                            aria-label="Voice search (coming soon)"
+                            disabled
+                        >
+                            🎤
+                        </button>
+                    </div>
+                    <span id="search-help" class="visually-hidden">
+                        Enter keywords to search across trades, users, and arbitrators
+                    </span>
+                </form>
+
+                <!-- Search Results -->
+                <div id="search-results" class="search-results" role="region" aria-label="Search results" aria-live="polite">
+                    <p class="empty-state">Enter a search term to find trades, users, or arbitrators.</p>
+                </div>
+
+                <!-- Search History -->
+                <details id="search-history-panel" class="history-panel">
+                    <summary class="history-summary" aria-label="Toggle search history">
+                        Recent Searches
+                    </summary>
+                    <ul id="search-history-list" class="history-list" role="list" aria-label="Recent search terms">
+                        <!-- Populated dynamically -->
+                    </ul>
+                </details>
+            </div>
+        </section>
+
+        <!-- Help Center Section -->
+        <section id="help" aria-labelledby="help-heading" class="section">
+            <div class="container">
+                <h2 id="help-heading" class="section-title">Help Center</h2>
+                
+                <!-- Help Navigation -->
+                <nav id="help-nav" class="help-nav" aria-label="Help center sections">
+                    <button 
+                        type="button"
+                        class="help-nav-btn active"
+                        data-target="faqs"
+                        aria-pressed="true"
+                    >
+                        FAQs
+                    </button>
+                    <button 
+                        type="button"
+                        class="help-nav-btn"
+                        data-target="tutorials"
+                        aria-pressed="false"
+                    >
+                        Tutorials
+                    </button>
+                    <button 
+                        type="button"
+                        class="help-nav-btn"
+                        data-target="docs"
+                        aria-pressed="false"
+                    >
+                        Documentation
+                    </button>
+                    <button 
+                        type="button"
+                        class="help-nav-btn"
+                        data-target="contact"
+                        aria-pressed="false"
+                    >
+                        Contact
+                    </button>
+                </nav>
+
+                <!-- FAQ Content -->
+                <div id="faqs-content" class="help-content active" role="region" aria-label="Frequently Asked Questions">
+                    <div class="faq-list" role="list">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Tutorials Content -->
+                <div id="tutorials-content" class="help-content" role="region" aria-label="Tutorials" hidden>
+                    <div class="tutorial-list" role="list">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Documentation Content -->
+                <div id="docs-content" class="help-content" role="region" aria-label="API Documentation" hidden>
+                    <!-- Populated dynamically -->
+                </div>
+
+                <!-- Contact Content -->
+                <div id="contact-content" class="help-content" role="region" aria-label="Contact Information" hidden>
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+        </section>
+
+        <!-- API Documentation Section -->
+        <section id="api-docs" aria-labelledby="api-docs-heading" class="section">
+            <div class="container">
+                <h2 id="api-docs-heading" class="section-title">API Documentation</h2>
+                
+                <div class="api-docs-intro">
+                    <p>
+                        The StellarEscrow Indexer provides a RESTful API for querying contract events.
+                        All endpoints return JSON responses and support standard HTTP methods.
+                    </p>
+                </div>
+
+                <!-- Endpoint Documentation -->
+                <div class="endpoints-list" role="list" aria-label="API endpoints">
+                    
+                    <article class="endpoint-card" role="article">
+                        <div class="endpoint-header">
+                            <span class="method-badge method-get" aria-label="HTTP GET method">GET</span>
+                            <code class="endpoint-path">/health</code>
+                        </div>
+                        <p class="endpoint-description">
+                            Check the health status of the indexer service.
+                        </p>
+                        <div class="endpoint-example">
+                            <h4 class="example-title">Example Response</h4>
+                            <pre class="code-block" role="code"><code>{
+  "status": "healthy",
+  "timestamp": "2024-01-15T10:30:00Z"
+}</code></pre>
+                        </div>
+                    </article>
+
+                    <article class="endpoint-card" role="article">
+                        <div class="endpoint-header">
+                            <span class="method-badge method-get" aria-label="HTTP GET method">GET</span>
+                            <code class="endpoint-path">/events</code>
+                        </div>
+                        <p class="endpoint-description">
+                            Retrieve a paginated list of contract events with optional filtering.
+                        </p>
+                        <dl class="endpoint-params">
+                            <dt>event_type</dt>
+                            <dd>Filter by event type (optional)</dd>
+                            <dt>trade_id</dt>
+                            <dd>Filter by trade ID (optional)</dd>
+                            <dt>limit</dt>
+                            <dd>Maximum results (default: 50, max: 100)</dd>
+                            <dt>offset</dt>
+                            <dd>Pagination offset (default: 0)</dd>
+                        </dl>
+                    </article>
+
+                    <article class="endpoint-card" role="article">
+                        <div class="endpoint-header">
+                            <span class="method-badge method-get" aria-label="HTTP GET method">GET</span>
+                            <code class="endpoint-path">/events/{id}</code>
+                        </div>
+                        <p class="endpoint-description">
+                            Retrieve a specific event by its UUID.
+                        </p>
+                    </article>
+
+                    <article class="endpoint-card" role="article">
+                        <div class="endpoint-header">
+                            <span class="method-badge method-get" aria-label="HTTP GET method">GET</span>
+                            <code class="endpoint-path">/search</code>
+                        </div>
+                        <p class="endpoint-description">
+                            Global search across trades, users, and arbitrators.
+                        </p>
+                        <dl class="endpoint-params">
+                            <dt>q</dt>
+                            <dd>Search query string (required)</dd>
+                            <dt>limit</dt>
+                            <dd>Maximum results per category (default: 10)</dd>
+                        </dl>
+                    </article>
+
+                    <article class="endpoint-card" role="article">
+                        <div class="endpoint-header">
+                            <span class="method-badge method-get" aria-label="HTTP GET method">GET</span>
+                            <code class="endpoint-path">/search/trades</code>
+                        </div>
+                        <p class="endpoint-description">
+                            Search specifically within trades.
+                        </p>
+                        <dl class="endpoint-params">
+                            <dt>q</dt>
+                            <dd>Search query (optional)</dd>
+                            <dt>status</dt>
+                            <dd>Filter by trade status (optional)</dd>
+                            <dt>seller</dt>
+                            <dd>Filter by seller address (optional)</dd>
+                            <dt>buyer</dt>
+                            <dd>Filter by buyer address (optional)</dd>
+                        </dl>
+                    </article>
+
+                    <article class="endpoint-card" role="article">
+                        <div class="endpoint-header">
+                            <span class="method-badge method-get" aria-label="HTTP GET method">GET</span>
+                            <code class="endpoint-path">/ws</code>
+                        </div>
+                        <p class="endpoint-description">
+                            WebSocket endpoint for real-time event streaming.
+                            Connect to receive live updates as events are indexed.
+                        </p>
+                    </article>
+                </div>
+
+                <!-- Accessibility Notes -->
+                <div class="a11y-notes" role="note" aria-label="Accessibility information">
+                    <h3>API Accessibility Features</h3>
+                    <ul>
+                        <li>All responses include human-readable error messages</li>
+                        <li>Event types are provided in both machine-readable (snake_case) and human-readable formats</li>
+                        <li>Timestamps follow ISO 8601 format for consistent parsing</li>
+                        <li>Rate limiting headers indicate remaining requests for planning</li>
+                        <li>CORS support enables cross-origin API access</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer role="contentinfo">
+        <div class="container">
+            <div class="footer-content">
+                <p class="copyright">
+                    StellarEscrow &copy; 2024. Built with accessibility in mind.
+                </p>
+                <nav class="footer-links" aria-label="Footer navigation">
+                    <a href="#help" aria-label="Help Center">Help Center</a>
+                    <a href="#api-docs" aria-label="API Documentation">API Documentation</a>
+                    <a href="https://stellar.org" target="_blank" rel="noopener noreferrer" aria-label="Visit Stellar website (opens in new tab)">Stellar</a>
+                </nav>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Toast notifications container -->
+    <div id="toast-container" class="toast-container" role="alert" aria-live="assertive" aria-label="Notifications"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>

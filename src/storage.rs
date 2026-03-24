@@ -3,6 +3,7 @@ use soroban_sdk::{Address, Env, Vec};
 use crate::errors::ContractError;
 use crate::types::{
     PlatformAnalytics, TierConfig, TimelineEntry, Trade, TradeTemplate,
+    OnboardingProgress, PlatformAnalytics, TierConfig, TimelineEntry, Trade, TradeTemplate,
     UserAnalytics, UserPreference, UserProfile, UserTierInfo,
 };
 
@@ -32,6 +33,7 @@ const USER_PREFIX: &str = "USER";
 const USER_PREF_PREFIX: &str = "UPREF";
 const USER_ANALYTICS_PREFIX: &str = "USTAT";
 const TIMELINE_PREFIX: &str = "TLINE";
+const ONBOARDING_PREFIX: &str = "ONBOARD";
 
 // =============================================================================
 // Initialization
@@ -165,6 +167,7 @@ pub fn has_arbitrator(env: &Env, arbitrator: &Address) -> bool {
 // Address → trade index
 // =============================================================================
 
+/// Append a trade ID to the address's trade index (call for both seller and buyer).
 pub fn index_trade_for_address(env: &Env, address: &Address, trade_id: u64) {
     let key = (ADDR_TRADES_PREFIX, address);
     let mut ids: Vec<u64> = env
@@ -176,6 +179,7 @@ pub fn index_trade_for_address(env: &Env, address: &Address, trade_id: u64) {
     env.storage().persistent().set(&key, &ids);
 }
 
+/// Return all trade IDs associated with an address.
 pub fn get_trade_ids_for_address(env: &Env, address: &Address) -> Vec<u64> {
     let key = (ADDR_TRADES_PREFIX, address);
     env.storage()
@@ -346,4 +350,23 @@ pub fn get_timeline(env: &Env, trade_id: u64) -> Vec<TimelineEntry> {
         .persistent()
         .get(&key)
         .unwrap_or_else(|| Vec::new(env))
+}
+
+// =============================================================================
+// Onboarding
+// =============================================================================
+
+pub fn save_onboarding(env: &Env, progress: &OnboardingProgress) {
+    let key = (ONBOARDING_PREFIX, &progress.address);
+    env.storage().persistent().set(&key, progress);
+}
+
+pub fn get_onboarding(env: &Env, address: &Address) -> Option<OnboardingProgress> {
+    let key = (ONBOARDING_PREFIX, address);
+    env.storage().persistent().get(&key)
+}
+
+pub fn has_onboarding(env: &Env, address: &Address) -> bool {
+    let key = (ONBOARDING_PREFIX, address);
+    env.storage().persistent().has(&key)
 }
