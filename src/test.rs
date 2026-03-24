@@ -197,3 +197,338 @@ fn test_export_csv_returns_header_and_rows() {
     // CSV should be non-empty and contain the header
     assert!(csv.len() > 0);
 }
+
+// =============================================================================
+// Analytics Charts & Graphs Tests
+// =============================================================================
+
+use crate::AnalyticsFilter;
+
+fn analytics_filter_all(env: &Env) -> AnalyticsFilter {
+    AnalyticsFilter {
+        from_ledger: None,
+        to_ledger: None,
+        bucket_size: 0,
+// Onboarding tests
+// =============================================================================
+
+use crate::{OnboardingStep, StepStatus};
+
+#[test]
+fn test_onboarding_start_creates_progress() {
+    let (_, client, _, seller, _) = setup();
+
+    let progress = client.start_onboarding(&seller);
+
+    assert!(!progress.finished);
+    assert_eq!(progress.current_step, OnboardingStep::RegisterProfile);
+    assert_eq!(progress.step_statuses.len(), 4);
+    // All steps start as Pending
+    for i in 0..4 {
+        assert_eq!(progress.step_statuses.get(i).unwrap(), StepStatus::Pending);
+    }
+}
+
+#[test]
+fn test_volume_chart_empty_state() {
+    let (env, client, _, _, _) = setup();
+    let data = client.get_volume_chart(&analytics_filter_all(&env)).unwrap();
+    assert_eq!(data.total_volume, 0);
+    assert_eq!(data.total_trades, 0);
+    assert_eq!(data.points.len(), 0);
+}
+
+#[test]
+fn test_volume_chart_accumulates_trade_amounts() {
+    let (env, client, _, seller, buyer) = setup();
+
+    client.create_trade(&seller, &buyer, &1000, &None, &None);
+    client.create_trade(&seller, &buyer, &2000, &None, &None);
+
+    let data = client.get_volume_chart(&analytics_filter_all(&env)).unwrap();
+    assert_eq!(data.total_trades, 2);
+    assert_eq!(data.total_volume, 3000);
+}
+
+#[test]
+fn test_volume_chart_filter_by_ledger_range() {
+    let (env, client, _, seller, buyer) = setup();
+
+    env.ledger().set_sequence_number(10);
+    client.create_trade(&seller, &buyer, &500, &None, &None);
+
+    env.ledger().set_sequence_number(200);
+    client.create_trade(&seller, &buyer, &1500, &None, &None);
+
+    let filter = AnalyticsFilter {
+        from_ledger: Some(100),
+        to_ledger: Some(300),
+        bucket_size: 0,
+    };
+    let data = client.get_volume_chart(&filter).unwrap();
+    assert_eq!(data.total_trades, 1);
+    assert_eq!(data.total_volume, 1500);
+}
+
+#[test]
+fn test_volume_chart_invalid_range_returns_error() {
+    let (env, client, _, _, _) = setup();
+    let filter = AnalyticsFilter {
+        from_ledger: Some(500),
+        to_ledger: Some(100),
+        bucket_size: 0,
+    };
+    let result = client.try_get_volume_chart(&filter);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_success_rate_empty_state() {
+    let (_env, client, _, _, _) = setup();
+    let data = client.get_success_rate();
+    assert_eq!(data.success_rate_bps, 0);
+    assert_eq!(data.completed, 0);
+}
+
+#[test]
+fn test_status_distribution_reflects_trade_states() {
+    let (env, client, _, seller, buyer) = setup();
+
+    client.create_trade(&seller, &buyer, &1000, &None, &None);
+    client.create_trade(&seller, &buyer, &2000, &None, &None);
+    client.cancel_trade(&2);
+
+    let dist = client.get_status_distribution(&analytics_filter_all(&env)).unwrap();
+    assert_eq!(dist.created, 1);
+    assert_eq!(dist.cancelled, 1);
+}
+
+#[test]
+fn test_fee_chart_empty_state() {
+    let (env, client, _, _, _) = setup();
+    let data = client.get_fee_chart(&analytics_filter_all(&env)).unwrap();
+    assert_eq!(data.total_fees, 0);
+    assert_eq!(data.points.len(), 0);
+}
+
+#[test]
+fn test_user_stats_empty_state() {
+    let (_env, client, _, seller, _) = setup();
+    let snapshot = client.get_user_stats(&seller);
+    assert_eq!(snapshot.total_trades, 0);
+    assert_eq!(snapshot.total_volume, 0);
+    assert_eq!(snapshot.success_rate_bps, 0);
+}
+
+#[test]
+fn test_user_stats_reflects_created_trades() {
+    let (_env, client, _, seller, buyer) = setup();
+
+    client.create_trade(&seller, &buyer, &1000, &None, &None);
+    client.create_trade(&seller, &buyer, &2000, &None, &None);
+
+    let snapshot = client.get_user_stats(&seller);
+    assert_eq!(snapshot.total_trades, 2);
+    assert_eq!(snapshot.total_volume, 3000);
+}
+
+#[test]
+fn test_export_platform_analytics_csv_has_header() {
+    let (_env, client, _, _, _) = setup();
+    let csv = client.export_platform_analytics_csv();
+    assert!(csv.len() > 0);
+}
+
+#[test]
+fn test_export_volume_chart_csv_valid_output() {
+    let (env, client, _, seller, buyer) = setup();
+    client.create_trade(&seller, &buyer, &1000, &None, &None);
+    let csv = client.export_volume_chart_csv(&analytics_filter_all(&env)).unwrap();
+    assert!(csv.len() > 0);
+}
+
+#[test]
+fn test_export_user_stats_csv_valid_output() {
+    let (_env, client, _, seller, _) = setup();
+    let csv = client.export_user_stats_csv(&seller);
+    assert!(csv.len() > 0);
+}
+
+#[test]
+fn test_user_volume_chart_empty_state() {
+    let (env, client, _, seller, _) = setup();
+    let data = client.get_user_volume_chart(&seller, &analytics_filter_all(&env)).unwrap();
+    assert_eq!(data.total_trades, 0);
+    assert_eq!(data.total_volume, 0);
+fn test_onboarding_start_is_idempotent() {
+    let (_, client, _, seller, _) = setup();
+
+    let first = client.start_onboarding(&seller);
+    let second = client.start_onboarding(&seller);
+
+    // Second call returns the same progress without resetting it
+    assert_eq!(first.started_at, second.started_at);
+    assert_eq!(first.current_step, second.current_step);
+}
+
+#[test]
+fn test_onboarding_complete_step_advances_progress() {
+    let (_, client, _, seller, _) = setup();
+
+    client.start_onboarding(&seller);
+
+    // Complete step 0 (RegisterProfile)
+    let progress = client.complete_onboarding_step(&seller, &0);
+
+    assert_eq!(progress.step_statuses.get(0).unwrap(), StepStatus::Done);
+    assert_eq!(progress.current_step, OnboardingStep::AcknowledgeFees);
+    assert!(!progress.finished);
+}
+
+#[test]
+fn test_onboarding_complete_all_steps_marks_finished() {
+    let (_, client, _, seller, _) = setup();
+
+    client.start_onboarding(&seller);
+
+    for i in 0..4u32 {
+        client.complete_onboarding_step(&seller, &i);
+    }
+
+    let progress = client.get_onboarding_progress(&seller).unwrap();
+    assert!(progress.finished);
+    assert_eq!(progress.current_step, OnboardingStep::Completed);
+    for i in 0..4 {
+        assert_eq!(progress.step_statuses.get(i).unwrap(), StepStatus::Done);
+    }
+}
+
+#[test]
+fn test_onboarding_skip_step_advances_without_completing() {
+    let (_, client, _, seller, _) = setup();
+
+    client.start_onboarding(&seller);
+
+    // Skip step 0
+    let progress = client.skip_onboarding_step(&seller, &0);
+
+    assert_eq!(progress.step_statuses.get(0).unwrap(), StepStatus::Skipped);
+    assert_eq!(progress.current_step, OnboardingStep::AcknowledgeFees);
+    assert!(!progress.finished);
+}
+
+#[test]
+fn test_onboarding_skip_all_steps_marks_finished() {
+    let (_, client, _, seller, _) = setup();
+
+    client.start_onboarding(&seller);
+
+    for i in 0..4u32 {
+        client.skip_onboarding_step(&seller, &i);
+    }
+
+    let progress = client.get_onboarding_progress(&seller).unwrap();
+    assert!(progress.finished);
+    assert_eq!(progress.current_step, OnboardingStep::Completed);
+    for i in 0..4 {
+        assert_eq!(progress.step_statuses.get(i).unwrap(), StepStatus::Skipped);
+    }
+}
+
+#[test]
+fn test_onboarding_exit_marks_all_pending_as_skipped() {
+    let (_, client, _, seller, _) = setup();
+
+    client.start_onboarding(&seller);
+    // Complete step 0 first
+    client.complete_onboarding_step(&seller, &0);
+
+    // Exit — steps 1, 2, 3 should become Skipped
+    let progress = client.exit_onboarding(&seller);
+
+    assert!(progress.finished);
+    assert_eq!(progress.step_statuses.get(0).unwrap(), StepStatus::Done);
+    assert_eq!(progress.step_statuses.get(1).unwrap(), StepStatus::Skipped);
+    assert_eq!(progress.step_statuses.get(2).unwrap(), StepStatus::Skipped);
+    assert_eq!(progress.step_statuses.get(3).unwrap(), StepStatus::Skipped);
+}
+
+#[test]
+fn test_onboarding_progress_is_persisted_and_resumable() {
+    let (_, client, _, seller, _) = setup();
+
+    client.start_onboarding(&seller);
+    client.complete_onboarding_step(&seller, &0);
+    client.skip_onboarding_step(&seller, &1);
+
+    // Simulate resume: start_onboarding returns existing progress
+    let resumed = client.start_onboarding(&seller);
+    assert_eq!(resumed.step_statuses.get(0).unwrap(), StepStatus::Done);
+    assert_eq!(resumed.step_statuses.get(1).unwrap(), StepStatus::Skipped);
+    assert_eq!(resumed.current_step, OnboardingStep::CreateFirstTemplate);
+}
+
+#[test]
+fn test_onboarding_get_progress_returns_none_before_start() {
+    let (_, client, _, seller, _) = setup();
+
+    let progress = client.get_onboarding_progress(&seller);
+    assert!(progress.is_none());
+}
+
+#[test]
+fn test_onboarding_is_active_reflects_state() {
+    let (_, client, _, seller, _) = setup();
+
+    assert!(!client.is_onboarding_active(&seller));
+
+    client.start_onboarding(&seller);
+    assert!(client.is_onboarding_active(&seller));
+
+    for i in 0..4u32 {
+        client.complete_onboarding_step(&seller, &i);
+    }
+    assert!(!client.is_onboarding_active(&seller));
+}
+
+#[test]
+fn test_onboarding_does_not_affect_existing_trades() {
+    let (env, client, _, seller, buyer) = setup();
+
+    // Create a trade before onboarding
+    let trade_id = client.create_trade(&seller, &buyer, &1000, &None, &None);
+
+    // Run through onboarding
+    client.start_onboarding(&seller);
+    client.exit_onboarding(&seller);
+
+    // Trade is unaffected
+    let page = client.get_transaction_history(
+        &seller,
+        &no_filter(&env),
+        &SortOrder::Ascending,
+        &0,
+        &10,
+    );
+    assert_eq!(page.total, 1);
+    assert_eq!(page.records.get(0).unwrap().trade_id, trade_id);
+}
+
+#[test]
+fn test_onboarding_independent_per_user() {
+    let (_, client, _, seller, buyer) = setup();
+
+    client.start_onboarding(&seller);
+    client.complete_onboarding_step(&seller, &0);
+
+    // Buyer has no onboarding yet
+    assert!(client.get_onboarding_progress(&buyer).is_none());
+
+    // Start buyer's onboarding — starts fresh
+    let buyer_progress = client.start_onboarding(&buyer);
+    assert_eq!(buyer_progress.current_step, OnboardingStep::RegisterProfile);
+
+    // Seller's progress is unchanged
+    let seller_progress = client.get_onboarding_progress(&seller).unwrap();
+    assert_eq!(seller_progress.step_statuses.get(0).unwrap(), StepStatus::Done);
+}

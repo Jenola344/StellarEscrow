@@ -38,6 +38,17 @@ pub fn emit_dispute_resolved(
         .publish((symbol_short!("resolved"),), (trade_id, resolution, recipient));
 }
 
+pub fn emit_partial_resolved(
+    env: &Env,
+    trade_id: u64,
+    buyer_amount: u64,
+    seller_amount: u64,
+    fee: u64,
+) {
+    env.events()
+        .publish((symbol_short!("part_res"),), (trade_id, buyer_amount, seller_amount, fee));
+}
+
 pub fn emit_trade_cancelled(env: &Env, trade_id: u64) {
     env.events()
         .publish((symbol_short!("cancel"),), trade_id);
@@ -173,4 +184,56 @@ pub fn emit_disclosure_granted(env: &Env, trade_id: u64, grantee: Address) {
 pub fn emit_disclosure_revoked(env: &Env, trade_id: u64, grantee: Address) {
     env.events()
         .publish((symbol_short!("disc_rv"),), (trade_id, grantee));
+}
+pub fn emit_arb_rated(env: &Env, arbitrator: Address, trade_id: u64, rater: Address, stars: u32) {
+    env.events()
+        .publish((symbol_short!("arb_rate"),), (arbitrator, trade_id, rater, stars));
+}
+
+pub fn emit_arb_rep_updated(env: &Env, arbitrator: Address, resolved_count: u32, rating_sum: u32, rating_count: u32) {
+    env.events()
+        .publish((symbol_short!("arb_rep"),), (arbitrator, resolved_count, rating_sum, rating_count));
+}
+pub fn emit_time_released(env: &Env, trade_id: u64, seller: Address, payout: u64) {
+    env.events()
+        .publish((symbol_short!("time_rel"),), (trade_id, seller, payout));
+}
+pub fn emit_upgraded(env: &Env, new_version: u32) {
+    env.events().publish((symbol_short!("upgraded"),), new_version);
+}
+
+pub fn emit_migrated(env: &Env, from_version: u32, to_version: u32) {
+    env.events().publish((symbol_short!("migrated"),), (from_version, to_version));
+}
+
+pub fn emit_bridge_oracle_set(env: &Env, oracle: Address) {
+    env.events().publish((symbol_short!("brg_set"),), oracle);
+}
+
+pub fn emit_bridge_trade_created(env: &Env, trade_id: u64, source_chain: soroban_sdk::String) {
+    env.events().publish((symbol_short!("brg_cr"),), (trade_id, source_chain));
+}
+
+pub fn emit_bridge_deposit_confirmed(env: &Env, trade_id: u64) {
+    env.events().publish((symbol_short!("brg_ok"),), trade_id);
+}
+
+pub fn emit_bridge_trade_expired(env: &Env, trade_id: u64) {
+    env.events().publish((symbol_short!("brg_exp"),), trade_id);
+}
+
+pub fn emit_insurance_provider_registered(env: &Env, provider: Address) {
+    env.events().publish((symbol_short!("ins_reg"),), provider);
+}
+
+pub fn emit_insurance_provider_removed(env: &Env, provider: Address) {
+    env.events().publish((symbol_short!("ins_rem"),), provider);
+}
+
+pub fn emit_insurance_purchased(env: &Env, trade_id: u64, provider: Address, premium: u64, coverage: u64) {
+    env.events().publish((symbol_short!("ins_buy"),), (trade_id, provider, premium, coverage));
+}
+
+pub fn emit_insurance_claimed(env: &Env, trade_id: u64, payout: u64, recipient: Address) {
+    env.events().publish((symbol_short!("ins_pay"),), (trade_id, payout, recipient));
 }
