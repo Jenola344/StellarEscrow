@@ -1,12 +1,15 @@
 #![no_std]
 
+mod admin;
 mod errors;
 mod events;
 mod history;
 mod storage;
 mod templates;
 mod tiers;
+mod trade_detail;
 mod types;
+mod users;
 
 #[cfg(test)]
 mod test;
@@ -24,8 +27,8 @@ pub use types::{
 };
 
 use storage::{
-    get_accumulated_fees, get_admin, get_fee_bps, get_trade, get_usdc_token,
-    has_arbitrator, increment_trade_counter, index_trade_for_address,
+    append_timeline_entry, get_accumulated_fees, get_admin, get_fee_bps, get_trade,
+    get_usdc_token, has_arbitrator, increment_trade_counter, index_trade_for_address,
     is_initialized, remove_arbitrator, save_arbitrator, save_trade, set_accumulated_fees,
     set_admin, set_fee_bps, set_initialized, set_trade_counter, set_usdc_token,
 };
@@ -139,6 +142,7 @@ impl StellarEscrowContract {
         if amount == 0 {
             return Err(ContractError::InvalidAmount);
         }
+        admin::check_not_paused(&env)?;
         seller.require_auth();
         if let Some(ref arb) = arbitrator {
             if !has_arbitrator(&env, arb) {
@@ -174,6 +178,11 @@ impl StellarEscrowContract {
         save_trade(&env, trade_id, &trade);
         index_trade_for_address(&env, &seller, trade_id);
         index_trade_for_address(&env, &buyer, trade_id);
+        // Record timeline entry
+        append_timeline_entry(&env, trade_id, TimelineEntry { status: TradeStatus::Created, ledger: now });
+        // Update analytics
+        users::record_trade_created(&env, &seller, &buyer, amount);
+        admin::on_trade_created(&env, amount);
         events::emit_trade_created(&env, trade_id, seller, buyer, amount);
         Ok(trade_id)
     }
@@ -198,6 +207,7 @@ impl StellarEscrowContract {
         trade.status = TradeStatus::Funded;
         trade.updated_at = env.ledger().sequence();
         save_trade(&env, trade_id, &trade);
+        append_timeline_entry(&env, trade_id, TimelineEntry { status: TradeStatus::Funded, ledger: trade.updated_at });
         events::emit_trade_funded(&env, trade_id);
         Ok(())
     }
@@ -215,6 +225,7 @@ impl StellarEscrowContract {
         trade.status = TradeStatus::Completed;
         trade.updated_at = env.ledger().sequence();
         save_trade(&env, trade_id, &trade);
+        append_timeline_entry(&env, trade_id, TimelineEntry { status: TradeStatus::Completed, ledger: trade.updated_at });
         events::emit_trade_completed(&env, trade_id);
         Ok(())
     }
@@ -243,6 +254,8 @@ impl StellarEscrowContract {
         // Record volume for tier progression on both parties
         tiers::record_volume(&env, &trade.seller, trade.amount)?;
         tiers::record_volume(&env, &trade.buyer, trade.amount)?;
+        users::record_trade_completed(&env, &trade.seller, &trade.buyer);
+        admin::on_trade_completed(&env, trade.fee);
         events::emit_trade_confirmed(&env, trade_id, payout, trade.fee);
         Ok(())
     }
@@ -266,6 +279,9 @@ impl StellarEscrowContract {
         trade.status = TradeStatus::Disputed;
         trade.updated_at = env.ledger().sequence();
         save_trade(&env, trade_id, &trade);
+        append_timeline_entry(&env, trade_id, TimelineEntry { status: TradeStatus::Disputed, ledger: trade.updated_at });
+        users::record_trade_disputed(&env, &trade.seller, &trade.buyer);
+        admin::on_trade_disputed(&env);
         events::emit_dispute_raised(&env, trade_id, caller);
         Ok(())
     }
@@ -317,6 +333,9 @@ impl StellarEscrowContract {
         trade.status = TradeStatus::Cancelled;
         trade.updated_at = env.ledger().sequence();
         save_trade(&env, trade_id, &trade);
+        append_timeline_entry(&env, trade_id, TimelineEntry { status: TradeStatus::Cancelled, ledger: trade.updated_at });
+        users::record_trade_cancelled(&env, &trade.seller);
+        admin::on_trade_cancelled(&env);
         events::emit_trade_cancelled(&env, trade_id);
         Ok(())
     }
@@ -726,5 +745,152 @@ impl StellarEscrowContract {
         filter: HistoryFilter,
     ) -> Result<soroban_sdk::String, ContractError> {
         history::export_csv(&env, address, filter)
+    }
+
+    // -------------------------------------------------------------------------
+    // User Management (Issue #64)
+    // -------------------------------------------------------------------------
+
+    /// Register a new user. username_hash and contact_hash are SHA-256 hashes
+    /// computed off-chain to avoid storing PII on-chain.
+    pub fn register_user(
+        env: Env,
+        address: Address,
+        username_hash: soroban_sdk::Bytes,
+        contact_hash: soroban_sdk::Bytes,
+    ) -> Result<(), ContractError> {
+        users::register_user(&env, address, username_hash, contact_hash)
+    }
+
+    /// Update an existing user's profile hashes.
+    pub fn update_profile(
+        env: Env,
+        address: Address,
+        username_hash: soroban_sdk::Bytes,
+        contact_hash: soroban_sdk::Bytes,
+    ) -> Result<(), ContractError> {
+        users::update_profile(&env, address, username_hash, contact_hash)
+    }
+
+    /// Get a user's profile.
+    pub fn get_user_profile(env: Env, address: Address) -> Result<UserProfile, ContractError> {
+        users::get_profile(&env, &address)
+    }
+
+    /// Set or update a user preference.
+    pub fn set_user_preference(
+        env: Env,
+        address: Address,
+        key: soroban_sdk::String,
+        value: soroban_sdk::String,
+    ) -> Result<(), ContractError> {
+        users::set_preference(&env, address, key, value)
+    }
+
+    /// Get a user preference by key.
+    pub fn get_user_preference(
+        env: Env,
+        address: Address,
+        key: soroban_sdk::String,
+    ) -> Result<UserPreference, ContractError> {
+        users::get_pref(&env, &address, &key)
+    }
+
+    /// Set verification status for a user (admin only).
+    pub fn set_user_verification(
+        env: Env,
+        address: Address,
+        status: VerificationStatus,
+    ) -> Result<(), ContractError> {
+        if !is_initialized(&env) {
+            return Err(ContractError::NotInitialized);
+        }
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+        users::set_verification(&env, &address, status)
+    }
+
+    /// Get analytics for a user.
+    pub fn get_user_analytics(env: Env, address: Address) -> UserAnalytics {
+        users::get_user_analytics(&env, &address)
+    }
+
+    // -------------------------------------------------------------------------
+    // Admin Panel (Issue #35)
+    // -------------------------------------------------------------------------
+
+    /// Transfer admin role to a new address (current admin only).
+    pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
+        if !is_initialized(&env) {
+            return Err(ContractError::NotInitialized);
+        }
+        let current_admin = get_admin(&env)?;
+        admin::transfer_admin(&env, current_admin, new_admin)
+    }
+
+    /// Pause the contract — prevents new trades (admin only).
+    pub fn pause_contract(env: Env) -> Result<(), ContractError> {
+        if !is_initialized(&env) {
+            return Err(ContractError::NotInitialized);
+        }
+        let a = get_admin(&env)?;
+        a.require_auth();
+        admin::pause_contract(&env);
+        Ok(())
+    }
+
+    /// Unpause the contract (admin only).
+    pub fn unpause_contract(env: Env) -> Result<(), ContractError> {
+        if !is_initialized(&env) {
+            return Err(ContractError::NotInitialized);
+        }
+        let a = get_admin(&env)?;
+        a.require_auth();
+        admin::unpause_contract(&env);
+        Ok(())
+    }
+
+    /// Get platform-wide analytics (total trades, volume, fees, disputes, etc.).
+    pub fn get_platform_analytics(env: Env) -> Result<PlatformAnalytics, ContractError> {
+        if !is_initialized(&env) {
+            return Err(ContractError::NotInitialized);
+        }
+        Ok(admin::get_analytics(&env))
+    }
+
+    /// Get system configuration snapshot (fee, pause state, counters).
+    pub fn get_system_config(env: Env) -> Result<SystemConfig, ContractError> {
+        if !is_initialized(&env) {
+            return Err(ContractError::NotInitialized);
+        }
+        let a = get_admin(&env)?;
+        a.require_auth();
+        admin::get_system_config(&env)
+    }
+
+    // -------------------------------------------------------------------------
+    // Trade Detail View (Issue #31)
+    // -------------------------------------------------------------------------
+
+    /// Get a complete trade detail view including timeline and available actions.
+    ///
+    /// - `trade_id` : trade to inspect
+    /// - `viewer`   : the calling address (determines which actions are shown)
+    pub fn get_trade_detail(
+        env: Env,
+        trade_id: u64,
+        viewer: Address,
+    ) -> Result<TradeDetail, ContractError> {
+        trade_detail::get_trade_detail(&env, trade_id, viewer)
+    }
+
+    /// Export a single trade as a CSV string.
+    ///
+    /// Columns: trade_id,amount,fee,seller_payout,status,created_at,updated_at
+    pub fn export_trade_csv(
+        env: Env,
+        trade_id: u64,
+    ) -> Result<soroban_sdk::String, ContractError> {
+        trade_detail::export_trade_csv(&env, trade_id)
     }
 }

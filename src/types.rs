@@ -194,4 +194,117 @@ pub struct TradeTemplate {
     pub active: bool,
     pub created_at: u32,
     pub updated_at: u32,
+// =============================================================================
+// User Management (Issue #64)
+// =============================================================================
+
+/// Verification status of a user, set by admin
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum VerificationStatus {
+    Unverified,
+    Pending,
+    Verified,
+    Rejected,
+}
+
+/// On-chain user profile
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UserProfile {
+    pub address: Address,
+    /// SHA-256 hash of off-chain display name (stored as 32 bytes)
+    pub username_hash: soroban_sdk::Bytes,
+    /// SHA-256 hash of off-chain contact info
+    pub contact_hash: soroban_sdk::Bytes,
+    pub verification: VerificationStatus,
+    pub registered_at: u32,
+    pub updated_at: u32,
+}
+
+/// Per-user preferences stored as a key→value map entry
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UserPreference {
+    pub key: soroban_sdk::String,
+    pub value: soroban_sdk::String,
+}
+
+/// Aggregated analytics for a user
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UserAnalytics {
+    pub address: Address,
+    pub total_trades: u32,
+    pub trades_as_seller: u32,
+    pub trades_as_buyer: u32,
+    pub total_volume: u64,
+    pub completed_trades: u32,
+    pub disputed_trades: u32,
+    pub cancelled_trades: u32,
+}
+
+// =============================================================================
+// Admin Panel (Issue #35)
+// =============================================================================
+
+/// Aggregated platform-wide analytics for the admin panel
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlatformAnalytics {
+    pub total_trades: u64,
+    pub total_volume: u64,
+    pub total_fees_collected: u64,
+    pub active_trades: u64,
+    pub completed_trades: u64,
+    pub disputed_trades: u64,
+    pub cancelled_trades: u64,
+}
+
+/// System configuration snapshot returned to admin
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SystemConfig {
+    pub fee_bps: u32,
+    pub is_paused: bool,
+    pub trade_counter: u64,
+    pub accumulated_fees: u64,
+}
+
+// =============================================================================
+// Trade Detail View (Issue #31)
+// =============================================================================
+
+/// A single entry in the trade status timeline
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TimelineEntry {
+    pub status: TradeStatus,
+    pub ledger: u32,
+}
+
+/// Context-sensitive actions available to a given viewer address
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TradeAction {
+    Fund,
+    Complete,
+    ConfirmReceipt,
+    RaiseDispute,
+    Cancel,
+    ResolveDispute,
+}
+
+/// Complete trade detail view returned by get_trade_detail
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TradeDetail {
+    /// Full trade data
+    pub trade: Trade,
+    /// Ordered status timeline (Created → current status)
+    pub timeline: Vec<TimelineEntry>,
+    /// Actions available to the viewer (empty if viewer is not a party)
+    pub available_actions: Vec<TradeAction>,
+    /// Net payout to seller after fee deduction
+    pub seller_payout: u64,
 }
