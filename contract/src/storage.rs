@@ -16,6 +16,7 @@ const TIER_CONFIG: &str = "TIER_CFG";
 const USER_TIER_PREFIX: &str = "UTIER";
 const TEMPLATE_COUNTER: &str = "TMPL_CTR";
 const TEMPLATE_PREFIX: &str = "TMPL";
+const CURRENCY_FEES_PREFIX: &str = "CFEES";
 
 // Initialization
 pub fn is_initialized(env: &Env) -> bool {
@@ -95,6 +96,17 @@ pub fn get_accumulated_fees(env: &Env) -> Result<u64, ContractError> {
         .instance()
         .get(&ACCUMULATED_FEES)
         .ok_or(ContractError::NotInitialized)
+}
+
+// Per-currency accumulated fees
+pub fn get_currency_fees(env: &Env, currency: &Address) -> u64 {
+    let key = (CURRENCY_FEES_PREFIX, currency);
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+pub fn set_currency_fees(env: &Env, currency: &Address, fees: u64) {
+    let key = (CURRENCY_FEES_PREFIX, currency);
+    env.storage().persistent().set(&key, &fees);
 }
 
 // Trades
