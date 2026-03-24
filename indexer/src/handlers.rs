@@ -9,7 +9,10 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::error::AppError;
-use crate::models::{EventQuery, ReplayRequest, WebSocketMessage};
+use crate::models::{
+    DiscoveryQuery, EventQuery, GlobalSearchQuery, GlobalSearchResponse, HistoryQuery, ReplayRequest,
+    SuggestionQuery, TradeSearchQuery, WebSocketMessage,
+};
 use crate::websocket::WebSocketManager;
 use crate::{database::Database, models::Event};
 
@@ -99,6 +102,96 @@ pub async fn ws_handler(
     ws: axum::extract::ws::WebSocketUpgrade,
 ) -> Response {
     ws.on_upgrade(move |socket| state.ws_manager.handle_connection(socket))
+}
+
+pub async fn global_search(
+    Query(params): Query<GlobalSearchQuery>,
+    State(state): State<AppState>,
+) -> Result<Json<GlobalSearchResponse>, AppError> {
+    let limit = params.limit.unwrap_or(10).clamp(1, 50);
+    let trade_query = TradeSearchQuery {
+        q: Some(params.q.clone()),
+        status: None,
+        seller: None,
+        buyer: None,
+        min_amount: None,
+        max_amount: None,
+        limit: Some(limit),
+        offset: Some(0),
+    };
+
+    let user_query = DiscoveryQuery {
+        q: Some(params.q.clone()),
+        role: Some("user".to_string()),
+        limit: Some(limit),
+    };
+    let arb_query = DiscoveryQuery {
+        q: Some(params.q.clone()),
+        role: Some("arbitrator".to_string()),
+        limit: Some(limit),
+    };
+
+    let trades = state.database.search_trades(&trade_query).await?;
+    let users = state.database.discover_entities(&user_query).await?;
+    let arbitrators = state.database.discover_entities(&arb_query).await?;
+    let suggestions = state.database.get_search_suggestions(&params.q, 10).await?;
+
+    state.database.record_search(&params.q, "global").await?;
+
+    Ok(Json(GlobalSearchResponse {
+        trades,
+        users,
+        arbitrators,
+        suggestions,
+    }))
+}
+
+pub async fn search_trades(
+    Query(params): Query<TradeSearchQuery>,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<crate::models::TradeSearchResult>>, AppError> {
+    let rows = state.database.search_trades(&params).await?;
+    if let Some(q) = params.q {
+        if !q.is_empty() {
+            state.database.record_search(&q, "trades").await?;
+        }
+    }
+    Ok(Json(rows))
+}
+
+pub async fn discover_entities(
+    Query(params): Query<DiscoveryQuery>,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<crate::models::DiscoveryResult>>, AppError> {
+    let rows = state.database.discover_entities(&params).await?;
+    if let Some(q) = params.q {
+        if !q.is_empty() {
+            state.database.record_search(&q, "discovery").await?;
+        }
+    }
+    Ok(Json(rows))
+}
+
+pub async fn search_suggestions(
+    Query(params): Query<SuggestionQuery>,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<crate::models::SearchSuggestion>>, AppError> {
+    let rows = state
+        .database
+        .get_search_suggestions(&params.q, params.limit.unwrap_or(10))
+        .await?;
+    Ok(Json(rows))
+}
+
+pub async fn search_history(
+    Query(params): Query<HistoryQuery>,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<crate::models::SearchHistoryEntry>>, AppError> {
+    let rows = state
+        .database
+        .get_search_history(params.limit.unwrap_or(20))
+        .await?;
+    Ok(Json(rows))
 }
 
 #[derive(Clone)]
