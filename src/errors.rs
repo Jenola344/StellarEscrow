@@ -21,4 +21,9 @@ pub enum ContractError {
     MetadataValueTooLong = 14,
     InvalidTierConfig = 15,
     TierNotFound = 16,
+    TemplateNotFound = 17,
+    TemplateInactive = 18,
+    TemplateNameTooLong = 19,
+    TemplateVersionLimitExceeded = 20,
+    TemplateAmountMismatch = 21,
 }

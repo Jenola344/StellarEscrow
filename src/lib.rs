@@ -5,6 +5,7 @@ mod errors;
 mod events;
 mod history;
 mod storage;
+mod templates;
 mod tiers;
 mod trade_detail;
 mod types;
@@ -21,7 +22,8 @@ use types::{METADATA_MAX_ENTRIES, METADATA_MAX_VALUE_LEN};
 pub use errors::ContractError;
 pub use types::{
     DisputeResolution, HistoryFilter, HistoryPage, MetadataEntry, SortOrder,
-    TierConfig, Trade, TradeMetadata, TradeStatus, TransactionRecord, UserTier, UserTierInfo,
+    TierConfig, Trade, TradeMetadata, TradeStatus, TradeTemplate, TemplateTerms,
+    TemplateVersion, TransactionRecord, UserTier, UserTierInfo,
 };
 
 use storage::{
@@ -602,6 +604,121 @@ impl StellarEscrowContract {
     pub fn get_effective_fee_bps(env: Env, user: Address) -> Result<u32, ContractError> {
         let base = get_fee_bps(&env)?;
         Ok(tiers::effective_fee_bps(&env, &user, base))
+    }
+
+    // -------------------------------------------------------------------------
+    // Trade Templates
+    // -------------------------------------------------------------------------
+
+    /// Create a reusable trade template (owner = seller).
+    pub fn create_template(
+        env: Env,
+        owner: Address,
+        name: soroban_sdk::String,
+        terms: TemplateTerms,
+    ) -> Result<u64, ContractError> {
+        if !is_initialized(&env) {
+            return Err(ContractError::NotInitialized);
+        }
+        owner.require_auth();
+        templates::create_template(&env, &owner, name, terms)
+    }
+
+    /// Update a template with new terms, bumping its version.
+    pub fn update_template(
+        env: Env,
+        caller: Address,
+        template_id: u64,
+        name: soroban_sdk::String,
+        terms: TemplateTerms,
+    ) -> Result<(), ContractError> {
+        if !is_initialized(&env) {
+            return Err(ContractError::NotInitialized);
+        }
+        caller.require_auth();
+        templates::update_template(&env, &caller, template_id, name, terms)
+    }
+
+    /// Deactivate a template so it can no longer be used to create trades.
+    pub fn deactivate_template(
+        env: Env,
+        caller: Address,
+        template_id: u64,
+    ) -> Result<(), ContractError> {
+        if !is_initialized(&env) {
+            return Err(ContractError::NotInitialized);
+        }
+        caller.require_auth();
+        templates::deactivate_template(&env, &caller, template_id)
+    }
+
+    /// Create a trade from a template. The template's current terms are applied;
+    /// `amount` must match `terms.fixed_amount` when one is set.
+    pub fn create_trade_from_template(
+        env: Env,
+        seller: Address,
+        buyer: Address,
+        template_id: u64,
+        amount: u64,
+    ) -> Result<u64, ContractError> {
+        if !is_initialized(&env) {
+            return Err(ContractError::NotInitialized);
+        }
+        if amount == 0 {
+            return Err(ContractError::InvalidAmount);
+        }
+        seller.require_auth();
+
+        let (terms, version) = templates::resolve_terms(&env, template_id)?;
+
+        // Enforce fixed amount if the template specifies one
+        if let Some(fixed) = terms.fixed_amount {
+            if amount != fixed {
+                return Err(ContractError::TemplateAmountMismatch);
+            }
+        }
+
+        // Validate arbitrator if template specifies one
+        if let Some(ref arb) = terms.default_arbitrator {
+            if !has_arbitrator(&env, arb) {
+                return Err(ContractError::ArbitratorNotRegistered);
+            }
+        }
+
+        let trade_id = increment_trade_counter(&env)?;
+        let base_fee_bps = get_fee_bps(&env)?;
+        let fee_bps = tiers::effective_fee_bps(&env, &seller, base_fee_bps);
+        let fee = amount
+            .checked_mul(fee_bps as u64)
+            .ok_or(ContractError::Overflow)?
+            .checked_div(10000)
+            .ok_or(ContractError::Overflow)?;
+
+        let now = env.ledger().sequence();
+        let trade = Trade {
+            id: trade_id,
+            seller: seller.clone(),
+            buyer: buyer.clone(),
+            amount,
+            fee,
+            arbitrator: terms.default_arbitrator,
+            status: TradeStatus::Created,
+            created_at: now,
+            updated_at: now,
+            metadata: terms.default_metadata,
+        };
+
+        save_trade(&env, trade_id, &trade);
+        index_trade_for_address(&env, &seller, trade_id);
+        index_trade_for_address(&env, &buyer, trade_id);
+        events::emit_trade_created(&env, trade_id, seller, buyer, amount);
+        events::emit_trade_from_template(&env, trade_id, template_id, version);
+        Ok(trade_id)
+    }
+
+    /// Get a template by ID.
+    pub fn get_template(env: Env, template_id: u64) -> Result<TradeTemplate, ContractError> {
+        storage::get_template(&env, template_id)
     }
 
     // -------------------------------------------------------------------------

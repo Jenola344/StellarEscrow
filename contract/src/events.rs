@@ -86,3 +86,23 @@ pub fn emit_custom_fee_set(env: &Env, user: Address, fee_bps: u32) {
     env.events()
         .publish((symbol_short!("cust_fee"),), (user, fee_bps));
 }
+
+pub fn emit_template_created(env: &Env, template_id: u64, owner: Address) {
+    env.events()
+        .publish((symbol_short!("tmpl_cr"),), (template_id, owner));
+}
+
+pub fn emit_template_updated(env: &Env, template_id: u64, version: u32) {
+    env.events()
+        .publish((symbol_short!("tmpl_up"),), (template_id, version));
+}
+
+pub fn emit_template_deactivated(env: &Env, template_id: u64) {
+    env.events()
+        .publish((symbol_short!("tmpl_off"),), template_id);
+}
+
+pub fn emit_trade_from_template(env: &Env, trade_id: u64, template_id: u64, version: u32) {
+    env.events()
+        .publish((symbol_short!("tmpl_tr"),), (trade_id, template_id, version));
+}

@@ -82,3 +82,40 @@ pub struct Trade {
     /// Optional structured metadata (product info, shipping details, etc.)
     pub metadata: Option<TradeMetadata>,
 }
+
+// ---------------------------------------------------------------------------
+// Trade Templates
+// ---------------------------------------------------------------------------
+
+pub const TEMPLATE_NAME_MAX_LEN: u32 = 64;
+pub const TEMPLATE_MAX_VERSIONS: u32 = 10;
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TemplateTerms {
+    pub description: String,
+    pub default_arbitrator: Option<Address>,
+    pub fixed_amount: Option<u64>,
+    pub default_metadata: Option<TradeMetadata>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TemplateVersion {
+    pub version: u32,
+    pub terms: TemplateTerms,
+    pub created_at: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TradeTemplate {
+    pub id: u64,
+    pub owner: Address,
+    pub name: String,
+    pub current_version: u32,
+    pub versions: Vec<TemplateVersion>,
+    pub active: bool,
+    pub created_at: u32,
+    pub updated_at: u32,
+}

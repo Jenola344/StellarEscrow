@@ -1,7 +1,7 @@
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::errors::ContractError;
-use crate::types::{TierConfig, Trade, UserTierInfo};
+use crate::types::{TierConfig, Trade, TradeTemplate, UserTierInfo};
 
 const INITIALIZED: &str = "INIT";
 const ADMIN: &str = "ADMIN";
@@ -14,6 +14,8 @@ const ARBITRATOR_PREFIX: &str = "ARB";
 const ADDR_TRADES_PREFIX: &str = "ADDR_T";
 const TIER_CONFIG: &str = "TIER_CFG";
 const USER_TIER_PREFIX: &str = "UTIER";
+const TEMPLATE_COUNTER: &str = "TMPL_CTR";
+const TEMPLATE_PREFIX: &str = "TMPL";
 
 pub fn is_initialized(env: &Env) -> bool {
     env.storage().instance().has(&INITIALIZED)
@@ -145,6 +147,34 @@ pub fn get_user_tier(env: &Env, user: &Address) -> Option<UserTierInfo> {
     let key = (USER_TIER_PREFIX, user);
     env.storage().persistent().get(&key)
 }
+
+// ---------------------------------------------------------------------------
+// Template storage
+// ---------------------------------------------------------------------------
+
+pub fn get_template_counter(env: &Env) -> u64 {
+    env.storage().instance().get(&TEMPLATE_COUNTER).unwrap_or(0)
+}
+
+pub fn increment_template_counter(env: &Env) -> Result<u64, ContractError> {
+    let next = get_template_counter(env)
+        .checked_add(1)
+        .ok_or(ContractError::Overflow)?;
+    env.storage().instance().set(&TEMPLATE_COUNTER, &next);
+    Ok(next)
+}
+
+pub fn save_template(env: &Env, template_id: u64, template: &TradeTemplate) {
+    let key = (TEMPLATE_PREFIX, template_id);
+    env.storage().persistent().set(&key, template);
+}
+
+pub fn get_template(env: &Env, template_id: u64) -> Result<TradeTemplate, ContractError> {
+    let key = (TEMPLATE_PREFIX, template_id);
+    env.storage()
+        .persistent()
+        .get(&key)
+        .ok_or(ContractError::TemplateNotFound)
 // =============================================================================
 // User Management storage (Issue #64)
 // =============================================================================

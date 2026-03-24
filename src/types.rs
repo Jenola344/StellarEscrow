@@ -146,6 +146,54 @@ pub struct HistoryPage {
     pub limit: u32,
 }
 
+// ---------------------------------------------------------------------------
+// Trade Templates
+// ---------------------------------------------------------------------------
+
+/// Maximum length of a template name string
+pub const TEMPLATE_NAME_MAX_LEN: u32 = 64;
+/// Maximum number of active versions retained per template
+pub const TEMPLATE_MAX_VERSIONS: u32 = 10;
+
+/// Predefined terms attached to a template
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TemplateTerms {
+    /// Human-readable description of the trade terms
+    pub description: String,
+    /// Optional default arbitrator for trades from this template
+    pub default_arbitrator: Option<Address>,
+    /// Optional fixed amount — if set, trades must use this amount
+    pub fixed_amount: Option<u64>,
+    /// Optional metadata defaults applied to every trade from this template
+    pub default_metadata: Option<TradeMetadata>,
+}
+
+/// A single versioned snapshot of a template
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TemplateVersion {
+    pub version: u32,
+    pub terms: TemplateTerms,
+    /// Ledger sequence when this version was created
+    pub created_at: u32,
+}
+
+/// A reusable trade template owned by a seller
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TradeTemplate {
+    pub id: u64,
+    pub owner: Address,
+    pub name: String,
+    /// Current (latest) version number
+    pub current_version: u32,
+    /// All retained versions (newest last)
+    pub versions: Vec<TemplateVersion>,
+    /// Whether the template is active and can be used to create trades
+    pub active: bool,
+    pub created_at: u32,
+    pub updated_at: u32,
 // =============================================================================
 // User Management (Issue #64)
 // =============================================================================
