@@ -136,6 +136,33 @@ impl Database {
         Ok(row.and_then(|r| r.get("latest_ledger")))
     }
 
+    pub async fn count_events(&self, query: &EventQuery) -> Result<i64, AppError> {
+        let mut sql = "SELECT COUNT(*) FROM events WHERE 1=1".to_string();
+        let mut bindings: Vec<String> = vec![];
+
+        if let Some(event_type) = &query.event_type {
+            sql.push_str(&format!(" AND event_type = ${}", bindings.len() + 1));
+            bindings.push(event_type.clone());
+        }
+        if let Some(trade_id) = query.trade_id {
+            sql.push_str(&format!(" AND data->>'trade_id' = ${}", bindings.len() + 1));
+            bindings.push(trade_id.to_string());
+        }
+        if let Some(from_ledger) = query.from_ledger {
+            sql.push_str(&format!(" AND ledger >= ${}", bindings.len() + 1));
+            bindings.push(from_ledger.to_string());
+        }
+        if let Some(to_ledger) = query.to_ledger {
+            sql.push_str(&format!(" AND ledger <= ${}", bindings.len() + 1));
+            bindings.push(to_ledger.to_string());
+        }
+
+        let mut q = sqlx::query(&sql);
+        for b in &bindings { q = q.bind(b); }
+        let row = q.fetch_one(&self.pool).await?;
+        Ok(row.get::<i64, _>(0))
+    }
+
     pub async fn get_events_in_range(&self, from_ledger: i64, to_ledger: i64, contract_id: &str) -> Result<Vec<Event>, AppError> {
         let rows = sqlx::query(
             r#"

@@ -89,6 +89,16 @@ pub struct EventQuery {
     pub to_ledger: Option<i64>,
 }
 
+/// Paginated response wrapper for list endpoints.
+#[derive(Debug, Serialize)]
+pub struct PagedResponse<T: Serialize> {
+    pub items: Vec<T>,
+    pub total: i64,
+    pub limit: i64,
+    pub offset: i64,
+    pub has_more: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReplayRequest {
     pub from_ledger: i64,
