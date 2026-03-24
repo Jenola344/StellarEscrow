@@ -156,4 +156,12 @@ pub fn emit_onboarding_completed(env: &Env, user: Address) {
 pub fn emit_onboarding_exited(env: &Env, user: Address) {
     env.events()
         .publish((symbol_short!("ob_exit"),), user);
+pub fn emit_avatar_updated(env: &Env, address: Address) {
+    env.events()
+        .publish((symbol_short!("avtr_up"),), address);
+}
+
+pub fn emit_security_updated(env: &Env, address: Address, two_fa_enabled: bool) {
+    env.events()
+        .publish((symbol_short!("sec_up"),), (address, two_fa_enabled));
 }

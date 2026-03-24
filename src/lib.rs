@@ -7,6 +7,7 @@ mod history;
 mod onboarding;
 mod storage;
 mod templates;
+mod theme;
 mod tiers;
 mod trade_detail;
 mod types;
@@ -21,12 +22,20 @@ use soroban_sdk::token::TokenClient;
 use types::{METADATA_MAX_ENTRIES, METADATA_MAX_VALUE_LEN};
 
 pub use errors::ContractError;
+pub use theme::{
+    FONT_LG, FONT_MD, FONT_SM,
+    PREF_FONT_SIZE, PREF_THEME_COLOR, PREF_THEME_MODE,
+    THEME_DARK, THEME_LIGHT, THEME_SYSTEM,
+};
 pub use types::{
     DisputeResolution, HistoryFilter, HistoryPage, MetadataEntry, OnboardingProgress,
     OnboardingStep, PlatformAnalytics, SortOrder, StepStatus, SystemConfig, TierConfig, Trade,
     TradeAction, TradeDetail, TradeMetadata, TradeStatus, TradeTemplate, TemplateTerms,
     TemplateVersion, TimelineEntry, TransactionRecord, UserAnalytics, UserPreference, UserProfile,
     UserTier, UserTierInfo, VerificationStatus,
+    DashboardStats, DisputeResolution, HistoryFilter, HistoryPage, MetadataEntry, SortOrder,
+    TierConfig, Trade, TradeMetadata, TradeStatus, TradeTemplate, TemplateTerms,
+    TemplateVersion, TransactionRecord, UserTier, UserTierInfo, VolumeInRange,
 };
 
 use storage::{
@@ -604,6 +613,26 @@ impl StellarEscrowContract {
         users::get_user_analytics(&env, &address)
     }
 
+    /// Update the avatar hash for a user (SHA-256 of the off-chain image).
+    /// Pass `None` to remove the avatar.
+    pub fn update_avatar(
+        env: Env,
+        address: Address,
+        avatar_hash: Option<soroban_sdk::Bytes>,
+    ) -> Result<(), ContractError> {
+        users::update_avatar(&env, address, avatar_hash)
+    }
+
+    /// Update security settings: 2FA flag and session timeout (seconds).
+    pub fn update_security_settings(
+        env: Env,
+        address: Address,
+        two_fa_enabled: bool,
+        session_timeout_secs: u32,
+    ) -> Result<(), ContractError> {
+        users::update_security_settings(&env, address, two_fa_enabled, session_timeout_secs)
+    }
+
     // -------------------------------------------------------------------------
     // Admin Panel
     // -------------------------------------------------------------------------
@@ -635,6 +664,28 @@ impl StellarEscrowContract {
         Ok(admin::get_analytics(&env))
     }
 
+    /// Get full dashboard snapshot: platform stats, success rate, dispute rate, avg volume.
+    pub fn get_dashboard(env: Env) -> Result<DashboardStats, ContractError> {
+        if !is_initialized(&env) {
+            return Err(ContractError::NotInitialized);
+        }
+        Ok(admin::get_dashboard(&env))
+    }
+
+    /// Get trade volume and counts for an address within a ledger range (date-range charts).
+    pub fn get_volume_in_range(
+        env: Env,
+        address: Address,
+        from_ledger: u32,
+        to_ledger: u32,
+    ) -> Result<VolumeInRange, ContractError> {
+        if !is_initialized(&env) {
+            return Err(ContractError::NotInitialized);
+        }
+        admin::get_volume_in_range(&env, &address, from_ledger, to_ledger)
+    }
+
+    /// Get system configuration snapshot (fee, pause state, counters).
     pub fn get_system_config(env: Env) -> Result<SystemConfig, ContractError> {
         if !is_initialized(&env) { return Err(ContractError::NotInitialized); }
         let a = get_admin(&env)?;

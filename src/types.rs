@@ -219,7 +219,13 @@ pub struct UserProfile {
     pub username_hash: soroban_sdk::Bytes,
     /// SHA-256 hash of off-chain contact info
     pub contact_hash: soroban_sdk::Bytes,
+    /// SHA-256 hash of off-chain avatar image (None if not set)
+    pub avatar_hash: Option<soroban_sdk::Bytes>,
     pub verification: VerificationStatus,
+    /// Whether two-factor authentication is enabled
+    pub two_fa_enabled: bool,
+    /// Preferred session timeout in seconds (0 = platform default)
+    pub session_timeout_secs: u32,
     pub registered_at: u32,
     pub updated_at: u32,
 }
@@ -261,6 +267,33 @@ pub struct PlatformAnalytics {
     pub completed_trades: u64,
     pub disputed_trades: u64,
     pub cancelled_trades: u64,
+}
+
+/// Full analytics dashboard snapshot — single call for all dashboard metrics.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DashboardStats {
+    /// Platform-wide counters
+    pub platform: PlatformAnalytics,
+    /// Success rate in basis points (completed * 10000 / total_trades), 0 if no trades
+    pub success_rate_bps: u32,
+    /// Dispute rate in basis points (disputed * 10000 / total_trades), 0 if no trades
+    pub dispute_rate_bps: u32,
+    /// Average trade volume (total_volume / total_trades), 0 if no trades
+    pub avg_trade_volume: u64,
+}
+
+/// Trade volume aggregated over a ledger range — for date-range charts.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VolumeInRange {
+    pub from_ledger: u32,
+    pub to_ledger: u32,
+    pub trade_count: u64,
+    pub total_volume: u64,
+    pub completed_count: u64,
+    pub disputed_count: u64,
+    pub cancelled_count: u64,
 }
 
 /// System configuration snapshot returned to admin
