@@ -254,3 +254,146 @@ pub struct GlobalSearchResponse {
     pub arbitrators: Vec<DiscoveryResult>,
     pub suggestions: Vec<SearchSuggestion>,
 }
+
+// =============================================================================
+// Audit Log Models
+// =============================================================================
+
+/// A single audit log entry stored in the database.
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct AuditLog {
+    pub id: Uuid,
+    pub actor: String,
+    pub category: String,
+    pub action: String,
+    pub resource_type: Option<String>,
+    pub resource_id: Option<String>,
+    pub outcome: String,
+    pub ledger: Option<i64>,
+    pub tx_hash: Option<String>,
+    pub metadata: serde_json::Value,
+    pub severity: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Payload used to insert a new audit log entry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewAuditLog {
+    pub actor: String,
+    pub category: AuditCategory,
+    pub action: String,
+    pub resource_type: Option<String>,
+    pub resource_id: Option<String>,
+    pub outcome: AuditOutcome,
+    pub ledger: Option<i64>,
+    pub tx_hash: Option<String>,
+    pub metadata: serde_json::Value,
+    pub severity: AuditSeverity,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AuditCategory {
+    Security,
+    Trade,
+    Admin,
+    Governance,
+    System,
+}
+
+impl AuditCategory {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AuditCategory::Security   => "security",
+            AuditCategory::Trade      => "trade",
+            AuditCategory::Admin      => "admin",
+            AuditCategory::Governance => "governance",
+            AuditCategory::System     => "system",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AuditOutcome {
+    Success,
+    Failure,
+    Denied,
+}
+
+impl AuditOutcome {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AuditOutcome::Success => "success",
+            AuditOutcome::Failure => "failure",
+            AuditOutcome::Denied  => "denied",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AuditSeverity {
+    Info,
+    Warn,
+    Error,
+    Critical,
+}
+
+impl AuditSeverity {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AuditSeverity::Info     => "info",
+            AuditSeverity::Warn     => "warn",
+            AuditSeverity::Error    => "error",
+            AuditSeverity::Critical => "critical",
+        }
+    }
+}
+
+/// Query parameters for filtering audit logs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditQuery {
+    pub actor: Option<String>,
+    pub category: Option<String>,
+    pub action: Option<String>,
+    pub resource_type: Option<String>,
+    pub resource_id: Option<String>,
+    pub outcome: Option<String>,
+    pub severity: Option<String>,
+    pub from: Option<DateTime<Utc>>,
+    pub to: Option<DateTime<Utc>>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+/// Aggregated statistics for the analysis endpoint.
+#[derive(Debug, Serialize)]
+pub struct AuditStats {
+    pub total: i64,
+    pub by_category: Vec<AuditBucket>,
+    pub by_outcome: Vec<AuditBucket>,
+    pub by_severity: Vec<AuditBucket>,
+    pub top_actors: Vec<AuditBucket>,
+    pub top_actions: Vec<AuditBucket>,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct AuditBucket {
+    pub label: String,
+    pub count: i64,
+}
+
+/// Request body for the retention purge endpoint.
+#[derive(Debug, Deserialize)]
+pub struct RetentionRequest {
+    /// Delete logs older than this many days (default 90, max 365).
+    pub older_than_days: Option<i64>,
+}
+
+/// Response from the retention purge endpoint.
+#[derive(Debug, Serialize)]
+pub struct RetentionResponse {
+    pub deleted: u64,
+    pub older_than_days: i64,
+}

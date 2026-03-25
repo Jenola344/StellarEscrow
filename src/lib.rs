@@ -2,6 +2,7 @@
 
 mod admin;
 mod analytics;
+mod audit;
 mod errors;
 mod events;
 mod filtering;
@@ -164,7 +165,8 @@ impl StellarEscrowContract {
         let token_client = TokenClient::new(&env, &token);
         token_client.transfer(&env.current_contract_address(), &to, &(fees as i128));
         set_accumulated_fees(&env, 0);
-        events::emit_fees_withdrawn(&env, fees, to);
+        events::emit_fees_withdrawn(&env, fees, to.clone());
+        let _ = audit::log_admin(&env, admin, soroban_sdk::String::from_str(&env, "admin.fees_withdrawn"));
         Ok(())
     }
 
@@ -211,7 +213,8 @@ impl StellarEscrowContract {
         append_timeline_entry(&env, trade_id, TimelineEntry { status: TradeStatus::Created, ledger: now });
         users::record_trade_created(&env, &seller, &buyer, amount);
         admin::on_trade_created(&env, amount);
-        events::emit_trade_created(&env, trade_id, seller, buyer, amount);
+        events::emit_trade_created(&env, trade_id, seller.clone(), buyer, amount);
+        let _ = audit::log_trade(&env, seller, soroban_sdk::String::from_str(&env, "trade.created"), trade_id);
         Ok(trade_id)
     }
 
@@ -306,7 +309,8 @@ impl StellarEscrowContract {
         token_client.transfer(&env.current_contract_address(), &recipient, &(payout as i128));
         let current_fees = get_accumulated_fees(&env)?;
         set_accumulated_fees(&env, current_fees.checked_add(trade.fee).ok_or(ContractError::Overflow)?);
-        events::emit_dispute_resolved(&env, trade_id, resolution, recipient);
+        events::emit_dispute_resolved(&env, trade_id, resolution, recipient.clone());
+        let _ = audit::log_trade(&env, arbitrator, soroban_sdk::String::from_str(&env, "dispute.resolved"), trade_id);
         Ok(())
     }
 
@@ -369,7 +373,8 @@ impl StellarEscrowContract {
         let admin = get_admin(&env)?;
         admin.require_auth();
         set_paused(&env, true);
-        events::emit_paused(&env, admin);
+        events::emit_paused(&env, admin.clone());
+        let _ = audit::log_admin(&env, admin, soroban_sdk::String::from_str(&env, "contract.pause"));
         Ok(())
     }
 
@@ -378,7 +383,8 @@ impl StellarEscrowContract {
         let admin = get_admin(&env)?;
         admin.require_auth();
         set_paused(&env, false);
-        events::emit_unpaused(&env, admin);
+        events::emit_unpaused(&env, admin.clone());
+        let _ = audit::log_admin(&env, admin, soroban_sdk::String::from_str(&env, "contract.unpause"));
         Ok(())
     }
 
@@ -398,6 +404,7 @@ impl StellarEscrowContract {
         }
         set_accumulated_fees(&env, 0);
         events::emit_emergency_withdraw(&env, to, balance as u64);
+        let _ = audit::log_admin(&env, admin, soroban_sdk::String::from_str(&env, "admin.emergency_withdraw"));
         Ok(())
     }
 
@@ -883,5 +890,29 @@ impl StellarEscrowContract {
     /// Return true if the user has an active (started, not finished) onboarding flow.
     pub fn is_onboarding_active(env: Env, user: Address) -> bool {
         onboarding::is_onboarding_active(&env, &user)
+    }
+
+    // -------------------------------------------------------------------------
+    // Audit Log
+    // -------------------------------------------------------------------------
+
+    /// Retrieve a single audit entry by its sequential ID.
+    pub fn get_audit_log(env: Env, id: u64) -> Option<audit::AuditEntry> {
+        audit::get_audit_log(&env, id)
+    }
+
+    /// Retrieve a page of audit entries in reverse-chronological order.
+    /// Pass `from_id = 0` to start from the most recent entry.
+    pub fn get_audit_logs(
+        env: Env,
+        from_id: u64,
+        limit: u32,
+    ) -> soroban_sdk::Vec<audit::AuditEntry> {
+        audit::get_audit_logs(&env, from_id, limit)
+    }
+
+    /// Return the total number of audit entries recorded.
+    pub fn audit_count(env: Env) -> u64 {
+        audit::audit_count(&env)
     }
 }

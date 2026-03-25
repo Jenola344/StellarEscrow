@@ -1,11 +1,11 @@
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
-use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::models::{
-    DiscoveryQuery, DiscoveryResult, Event, EventQuery, SearchHistoryEntry, SearchSuggestion,
+    AuditBucket, AuditLog, AuditQuery, AuditStats, DiscoveryQuery, DiscoveryResult, Event,
+    EventQuery, NewAuditLog, SearchHistoryEntry, SearchSuggestion,
     TradeSearchQuery, TradeSearchResult,
 };
 use crate::fraud_service::FraudReport;
@@ -395,6 +395,169 @@ impl Database {
         Ok(rows)
     }
 
+    // =========================================================================
+    // Audit Log Operations
+    // =========================================================================
+
+    /// Insert a new audit log entry.
+    pub async fn insert_audit_log(&self, entry: &NewAuditLog) -> Result<AuditLog, AppError> {
+        let row = sqlx::query_as::<_, AuditLog>(
+            r#"
+            INSERT INTO audit_logs
+                (actor, category, action, resource_type, resource_id,
+                 outcome, ledger, tx_hash, metadata, severity)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            RETURNING *
+            "#,
+        )
+        .bind(&entry.actor)
+        .bind(entry.category.as_str())
+        .bind(&entry.action)
+        .bind(&entry.resource_type)
+        .bind(&entry.resource_id)
+        .bind(entry.outcome.as_str())
+        .bind(entry.ledger)
+        .bind(&entry.tx_hash)
+        .bind(&entry.metadata)
+        .bind(entry.severity.as_str())
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    /// Query audit logs with optional filters and pagination.
+    pub async fn query_audit_logs(&self, q: &AuditQuery) -> Result<Vec<AuditLog>, AppError> {
+        let limit = q.limit.unwrap_or(50).clamp(1, 500);
+        let offset = q.offset.unwrap_or(0).max(0);
+
+        // Build dynamic WHERE clauses
+        let mut conditions = vec!["1=1".to_string()];
+        let mut idx = 1usize;
+
+        macro_rules! push_cond {
+            ($field:expr, $val:expr) => {
+                if $val.is_some() {
+                    conditions.push(format!("{} = ${}", $field, idx));
+                    idx += 1;
+                }
+            };
+        }
+
+        push_cond!("actor",         q.actor);
+        push_cond!("category",      q.category);
+        push_cond!("action",        q.action);
+        push_cond!("resource_type", q.resource_type);
+        push_cond!("resource_id",   q.resource_id);
+        push_cond!("outcome",       q.outcome);
+        push_cond!("severity",      q.severity);
+
+        if q.from.is_some() {
+            conditions.push(format!("created_at >= ${}", idx));
+            idx += 1;
+        }
+        if q.to.is_some() {
+            conditions.push(format!("created_at <= ${}", idx));
+            idx += 1;
+        }
+
+        let sql = format!(
+            "SELECT * FROM audit_logs WHERE {} ORDER BY created_at DESC LIMIT {} OFFSET {}",
+            conditions.join(" AND "),
+            limit,
+            offset
+        );
+
+        let mut qb = sqlx::query_as::<_, AuditLog>(&sql);
+        if let Some(v) = &q.actor         { qb = qb.bind(v); }
+        if let Some(v) = &q.category      { qb = qb.bind(v); }
+        if let Some(v) = &q.action        { qb = qb.bind(v); }
+        if let Some(v) = &q.resource_type { qb = qb.bind(v); }
+        if let Some(v) = &q.resource_id   { qb = qb.bind(v); }
+        if let Some(v) = &q.outcome       { qb = qb.bind(v); }
+        if let Some(v) = &q.severity      { qb = qb.bind(v); }
+        if let Some(v) = q.from           { qb = qb.bind(v); }
+        if let Some(v) = q.to             { qb = qb.bind(v); }
+
+        Ok(qb.fetch_all(&self.pool).await?)
+    }
+
+    /// Count audit logs matching the same filters (for pagination).
+    pub async fn count_audit_logs(&self, q: &AuditQuery) -> Result<i64, AppError> {
+        let mut conditions = vec!["1=1".to_string()];
+        let mut idx = 1usize;
+
+        macro_rules! push_cond {
+            ($field:expr, $val:expr) => {
+                if $val.is_some() {
+                    conditions.push(format!("{} = ${}", $field, idx));
+                    idx += 1;
+                }
+            };
+        }
+
+        push_cond!("actor",         q.actor);
+        push_cond!("category",      q.category);
+        push_cond!("action",        q.action);
+        push_cond!("resource_type", q.resource_type);
+        push_cond!("resource_id",   q.resource_id);
+        push_cond!("outcome",       q.outcome);
+        push_cond!("severity",      q.severity);
+
+        if q.from.is_some() {
+            conditions.push(format!("created_at >= ${}", idx));
+            idx += 1;
+        }
+        if q.to.is_some() {
+            conditions.push(format!("created_at <= ${}", idx));
+            idx += 1;
+        }
+
+        let sql = format!(
+            "SELECT COUNT(*) FROM audit_logs WHERE {}",
+            conditions.join(" AND ")
+        );
+
+        let mut qb = sqlx::query(&sql);
+        if let Some(v) = &q.actor         { qb = qb.bind(v); }
+        if let Some(v) = &q.category      { qb = qb.bind(v); }
+        if let Some(v) = &q.action        { qb = qb.bind(v); }
+        if let Some(v) = &q.resource_type { qb = qb.bind(v); }
+        if let Some(v) = &q.resource_id   { qb = qb.bind(v); }
+        if let Some(v) = &q.outcome       { qb = qb.bind(v); }
+        if let Some(v) = &q.severity      { qb = qb.bind(v); }
+        if let Some(v) = q.from           { qb = qb.bind(v); }
+        if let Some(v) = q.to             { qb = qb.bind(v); }
+
+        let row = qb.fetch_one(&self.pool).await?;
+        Ok(row.get::<i64, _>(0))
+    }
+
+    /// Aggregate statistics for the analysis dashboard.
+    pub async fn audit_stats(&self) -> Result<AuditStats, AppError> {
+        let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM audit_logs")
+            .fetch_one(&self.pool)
+            .await?;
+
+        let by_category = sqlx::query_as::<_, AuditBucket>(
+            "SELECT category AS label, COUNT(*)::BIGINT AS count FROM audit_logs GROUP BY category ORDER BY count DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let by_outcome = sqlx::query_as::<_, AuditBucket>(
+            "SELECT outcome AS label, COUNT(*)::BIGINT AS count FROM audit_logs GROUP BY outcome ORDER BY count DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let by_severity = sqlx::query_as::<_, AuditBucket>(
+            "SELECT severity AS label, COUNT(*)::BIGINT AS count FROM audit_logs GROUP BY severity ORDER BY count DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let top_actors = sqlx::query_as::<_, AuditBucket>(
+            "SELECT actor AS label, COUNT(*)::BIGINT AS count FROM audit_logs GROUP BY actor ORDER BY count DESC LIMIT 20",
     pub async fn insert_fraud_alert(&self, report: &FraudReport) -> Result<(), AppError> {
         let rules_json = serde_json::to_value(&report.rules_triggered).unwrap_or(serde_json::Value::Null);
         let status = if report.risk_score >= 80 { "pending" } else { "approved" };
@@ -444,6 +607,26 @@ impl Database {
         .fetch_all(&self.pool)
         .await?;
 
+        let top_actions = sqlx::query_as::<_, AuditBucket>(
+            "SELECT action AS label, COUNT(*)::BIGINT AS count FROM audit_logs GROUP BY action ORDER BY count DESC LIMIT 20",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(AuditStats { total, by_category, by_outcome, by_severity, top_actors, top_actions })
+    }
+
+    /// Delete audit logs older than `days` days. Returns the number of rows deleted.
+    pub async fn purge_old_audit_logs(&self, days: i64) -> Result<u64, AppError> {
+        let result = sqlx::query(
+            "DELETE FROM audit_logs WHERE created_at < NOW() - ($1 || ' days')::INTERVAL",
+        )
+        .bind(days)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+}
         let mut alerts = Vec::new();
         for row in rows {
             alerts.push(serde_json::json!({

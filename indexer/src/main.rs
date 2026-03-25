@@ -2,6 +2,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::{
+    extract::State,
+    response::Json,
+    routing::{delete, get, post},
     extract::FromRef,
     middleware,
     routing::{delete, get, post},
@@ -166,6 +169,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/help/docs", get(get_docs))
         .route("/help/search", get(search_help))
         .route("/help/contact", get(get_contact))
+        // Audit logs
+        .route("/audit", post(create_audit_log))
+        .route("/audit", get(query_audit_logs))
+        .route("/audit/stats", get(audit_stats))
+        .route("/audit/purge", delete(purge_audit_logs))
+        .layer(CorsLayer::permissive())
         .with_state(AppState {
             database,
             ws_manager,
