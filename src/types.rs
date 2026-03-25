@@ -24,39 +24,6 @@ pub enum SortOrder {
     Descending,
 }
 
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Trade {
-    pub id: u64,
-    pub seller: Address,
-    pub buyer: Address,
-    pub amount: u64,
-    pub fee: u64,
-    pub arbitrator: Option<Address>,
-    pub status: TradeStatus,
-    /// Ledger sequence number when the trade was created
-    pub created_at: u32,
-    /// Ledger sequence number of the last status update
-    pub updated_at: u32,
-    /// Optional structured metadata (product info, shipping details, etc.)
-    pub metadata: Option<TradeMetadata>,
-}
-
-/// A richer view of a trade used for history queries
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TransactionRecord {
-    pub trade_id: u64,
-    pub seller: Address,
-    pub buyer: Address,
-    pub amount: u64,
-    pub fee: u64,
-    pub status: TradeStatus,
-    pub created_at: u32,
-    pub updated_at: u32,
-    pub metadata: Option<TradeMetadata>,
-}
-
 /// Maximum byte length for a single metadata value string
 pub const METADATA_MAX_VALUE_LEN: u32 = 256;
 /// Maximum number of key-value pairs in metadata
@@ -75,6 +42,55 @@ pub struct MetadataEntry {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TradeMetadata {
     pub entries: Vec<MetadataEntry>,
+}
+
+/// Optional wrapper for TradeMetadata (Soroban SDK requires enum wrappers for Option<contracttype>)
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum OptionalTradeMetadata {
+    None,
+    Some(TradeMetadata),
+}
+
+/// Optional wrapper for TradeStatus
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum OptionalTradeStatus {
+    None,
+    Some(TradeStatus),
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Trade {
+    pub id: u64,
+    pub seller: Address,
+    pub buyer: Address,
+    pub amount: u64,
+    pub fee: u64,
+    pub arbitrator: Option<Address>,
+    pub status: TradeStatus,
+    /// Ledger sequence number when the trade was created
+    pub created_at: u32,
+    /// Ledger sequence number of the last status update
+    pub updated_at: u32,
+    /// Optional structured metadata (product info, shipping details, etc.)
+    pub metadata: OptionalTradeMetadata,
+}
+
+/// A richer view of a trade used for history queries
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TransactionRecord {
+    pub trade_id: u64,
+    pub seller: Address,
+    pub buyer: Address,
+    pub amount: u64,
+    pub fee: u64,
+    pub status: TradeStatus,
+    pub created_at: u32,
+    pub updated_at: u32,
+    pub metadata: OptionalTradeMetadata,
 }
 
 // ---------------------------------------------------------------------------
@@ -129,7 +145,7 @@ pub struct TierConfig {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HistoryFilter {
     /// Optional status filter
-    pub status: Option<TradeStatus>,
+    pub status: OptionalTradeStatus,
     /// Minimum ledger sequence (inclusive)
     pub from_ledger: Option<u32>,
     /// Maximum ledger sequence (inclusive)
@@ -166,7 +182,7 @@ pub struct TemplateTerms {
     /// Optional fixed amount — if set, trades must use this amount
     pub fixed_amount: Option<u64>,
     /// Optional metadata defaults applied to every trade from this template
-    pub default_metadata: Option<TradeMetadata>,
+    pub default_metadata: OptionalTradeMetadata,
 }
 
 /// A single versioned snapshot of a template
@@ -194,6 +210,8 @@ pub struct TradeTemplate {
     pub active: bool,
     pub created_at: u32,
     pub updated_at: u32,
+}
+
 // =============================================================================
 // User Management (Issue #64)
 // =============================================================================
@@ -307,4 +325,64 @@ pub struct TradeDetail {
     pub available_actions: Vec<TradeAction>,
     /// Net payout to seller after fee deduction
     pub seller_payout: u64,
+}
+
+// =============================================================================
+// Trade Creation Form (Issue: trade-form UI)
+// =============================================================================
+
+/// Supported currencies for trade creation.
+/// Currently only USDC is supported on Stellar/Soroban.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Currency {
+    Usdc,
+}
+
+/// Input collected from the trade creation form before validation.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TradeFormInput {
+    pub seller: Address,
+    pub buyer: Address,
+    /// Amount in USDC micro-units (1 USDC = 10_000_000)
+    pub amount: u64,
+    pub currency: Currency,
+    /// Optional registered arbitrator address
+    pub arbitrator: Option<Address>,
+}
+
+/// Structured preview shown to the user before final confirmation.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TradePreview {
+    pub seller: Address,
+    pub buyer: Address,
+    pub amount: u64,
+    pub currency: Currency,
+    pub arbitrator: Option<Address>,
+    /// Estimated platform fee (informational, recalculated on-chain at creation)
+    pub estimated_fee: u64,
+}
+
+// =============================================================================
+// Trade Funding Flow
+// =============================================================================
+
+/// Preview shown to the buyer before they fund a trade.
+/// Contains all information needed to review the cost and confirm.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FundingPreview {
+    pub trade_id: u64,
+    pub buyer: Address,
+    pub seller: Address,
+    /// USDC amount (micro-units) the buyer must transfer
+    pub amount: u64,
+    /// Platform fee already baked into the trade
+    pub fee: u64,
+    /// Buyer's current USDC balance (informational)
+    pub buyer_balance: u64,
+    /// True when the buyer has already approved sufficient allowance
+    pub allowance_sufficient: bool,
 }

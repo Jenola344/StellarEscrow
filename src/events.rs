@@ -93,6 +93,8 @@ pub fn emit_unpaused(env: &Env, admin: Address) {
 pub fn emit_emergency_withdraw(env: &Env, to: Address, amount: u64) {
     env.events()
         .publish((symbol_short!("emrg_wd"),), (to, amount));
+}
+
 pub fn emit_tier_upgraded(env: &Env, user: Address, new_tier: crate::types::UserTier) {
     env.events()
         .publish((symbol_short!("tier_up"),), (user, new_tier));

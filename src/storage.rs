@@ -179,6 +179,8 @@ pub fn get_template(env: &Env, template_id: u64) -> Result<TradeTemplate, Contra
         .persistent()
         .get(&key)
         .ok_or(ContractError::TemplateNotFound)
+}
+
 // =============================================================================
 // User Management storage (Issue #64)
 // =============================================================================
@@ -205,13 +207,20 @@ pub fn has_user(env: &Env, address: &Address) -> bool {
 }
 
 pub fn save_preference(env: &Env, address: &Address, pref: &UserPreference) {
-    let key = (USER_PREF_PREFIX, address, &pref.key);
-    env.storage().persistent().set(&key, pref);
+    // Store each preference as a separate entry keyed by (prefix, address, key_bytes)
+    // Use a soroban Map stored under (prefix, address) to avoid 3-tuple key issues
+    let map_key = (USER_PREF_PREFIX, address);
+    let mut map: soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String> =
+        env.storage().persistent().get(&map_key).unwrap_or(soroban_sdk::Map::new(env));
+    map.set(pref.key.clone(), pref.value.clone());
+    env.storage().persistent().set(&map_key, &map);
 }
 
 pub fn get_preference(env: &Env, address: &Address, pref_key: &soroban_sdk::String) -> Option<UserPreference> {
-    let key = (USER_PREF_PREFIX, address, pref_key);
-    env.storage().persistent().get(&key)
+    let map_key = (USER_PREF_PREFIX, address);
+    let map: soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String> =
+        env.storage().persistent().get(&map_key).unwrap_or(soroban_sdk::Map::new(env));
+    map.get(pref_key.clone()).map(|value| UserPreference { key: pref_key.clone(), value })
 }
 
 pub fn save_analytics(env: &Env, analytics: &UserAnalytics) {
@@ -242,7 +251,6 @@ pub fn get_analytics(env: &Env, address: &Address) -> UserAnalytics {
 
 use crate::types::PlatformAnalytics;
 
-const PAUSED: &str = "PAUSED";
 const PLATFORM_STATS: &str = "PSTATS";
 
 pub fn set_paused(env: &Env, paused: bool) {

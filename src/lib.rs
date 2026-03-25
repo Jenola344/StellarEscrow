@@ -1,5 +1,8 @@
 #![no_std]
 
+#[cfg(test)]
+extern crate std;
+
 mod admin;
 mod errors;
 mod events;
@@ -8,6 +11,8 @@ mod storage;
 mod templates;
 mod tiers;
 mod trade_detail;
+mod trade_form;
+mod fund_trade;
 mod types;
 mod users;
 
@@ -21,14 +26,16 @@ use types::{METADATA_MAX_ENTRIES, METADATA_MAX_VALUE_LEN};
 
 pub use errors::ContractError;
 pub use types::{
-    DisputeResolution, HistoryFilter, HistoryPage, MetadataEntry, SortOrder,
-    TierConfig, Trade, TradeMetadata, TradeStatus, TradeTemplate, TemplateTerms,
-    TemplateVersion, TransactionRecord, UserTier, UserTierInfo,
+    Currency, DisputeResolution, FundingPreview, HistoryFilter, HistoryPage, MetadataEntry,
+    OptionalTradeMetadata, OptionalTradeStatus, PlatformAnalytics, SortOrder, SystemConfig,
+    TierConfig, Trade, TradeDetail, TradeFormInput, TradeMetadata, TradePreview, TradeStatus,
+    TradeTemplate, TemplateTerms, TemplateVersion, TimelineEntry, TransactionRecord,
+    UserAnalytics, UserPreference, UserProfile, UserTier, UserTierInfo, VerificationStatus,
 };
 
 use storage::{
-    get_accumulated_fees, get_admin, get_fee_bps, get_trade, get_usdc_token,
-    has_arbitrator, increment_trade_counter, index_trade_for_address,
+    append_timeline_entry, get_accumulated_fees, get_admin, get_fee_bps, get_trade,
+    get_usdc_token, has_arbitrator, increment_trade_counter, index_trade_for_address,
     is_initialized, is_paused, remove_arbitrator, save_arbitrator, save_trade,
     set_accumulated_fees, set_admin, set_fee_bps, set_initialized, set_paused,
     set_trade_counter, set_usdc_token,
@@ -38,11 +45,9 @@ use storage::{
 fn require_not_paused(env: &Env) -> Result<(), ContractError> {
     if is_paused(env) {
         return Err(ContractError::ContractPaused);
-    append_timeline_entry, get_accumulated_fees, get_admin, get_fee_bps, get_trade,
-    get_usdc_token, has_arbitrator, increment_trade_counter, index_trade_for_address,
-    is_initialized, remove_arbitrator, save_arbitrator, save_trade, set_accumulated_fees,
-    set_admin, set_fee_bps, set_initialized, set_trade_counter, set_usdc_token,
-};
+    }
+    Ok(())
+}
 
 /// Validate metadata entries against size limits.
 fn validate_metadata(meta: &TradeMetadata) -> Result<(), ContractError> {
@@ -55,6 +60,67 @@ fn validate_metadata(meta: &TradeMetadata) -> Result<(), ContractError> {
         }
     }
     Ok(())
+}
+
+/// Internal helper used by [`trade_form::confirm_trade`] to create a trade
+/// without going through the public contract entry-point (which requires
+/// `seller.require_auth()` — already enforced by the caller).
+pub(crate) fn lib_create_trade(
+    env: &Env,
+    seller: Address,
+    buyer: Address,
+    amount: u64,
+    arbitrator: Option<Address>,
+    metadata: OptionalTradeMetadata,
+) -> Result<u64, ContractError> {
+    use types::TimelineEntry;
+
+    if !is_initialized(env) {
+        return Err(ContractError::NotInitialized);
+    }
+    if is_paused(env) {
+        return Err(ContractError::ContractPaused);
+    }
+    if amount == 0 {
+        return Err(ContractError::InvalidAmount);
+    }
+    if let Some(ref arb) = arbitrator {
+        if !has_arbitrator(env, arb) {
+            return Err(ContractError::ArbitratorNotRegistered);
+        }
+    }
+    if let OptionalTradeMetadata::Some(ref meta) = metadata {
+        validate_metadata(meta)?;
+    }
+    let trade_id = increment_trade_counter(env)?;
+    let base_fee_bps = get_fee_bps(env)?;
+    let fee_bps = tiers::effective_fee_bps(env, &seller, base_fee_bps);
+    let fee = amount
+        .checked_mul(fee_bps as u64)
+        .ok_or(ContractError::Overflow)?
+        .checked_div(10_000)
+        .ok_or(ContractError::Overflow)?;
+    let now = env.ledger().sequence();
+    let trade = Trade {
+        id: trade_id,
+        seller: seller.clone(),
+        buyer: buyer.clone(),
+        amount,
+        fee,
+        arbitrator,
+        status: TradeStatus::Created,
+        created_at: now,
+        updated_at: now,
+        metadata,
+    };
+    save_trade(env, trade_id, &trade);
+    index_trade_for_address(env, &seller, trade_id);
+    index_trade_for_address(env, &buyer, trade_id);
+    append_timeline_entry(env, trade_id, TimelineEntry { status: TradeStatus::Created, ledger: now });
+    users::record_trade_created(env, &seller, &buyer, amount);
+    admin::on_trade_created(env, amount);
+    events::emit_trade_created(env, trade_id, seller, buyer, amount);
+    Ok(trade_id)
 }
 
 #[contract]
@@ -148,7 +214,7 @@ impl StellarEscrowContract {
         buyer: Address,
         amount: u64,
         arbitrator: Option<Address>,
-        metadata: Option<TradeMetadata>,
+        metadata: OptionalTradeMetadata,
     ) -> Result<u64, ContractError> {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
@@ -164,7 +230,7 @@ impl StellarEscrowContract {
                 return Err(ContractError::ArbitratorNotRegistered);
             }
         }
-        if let Some(ref meta) = metadata {
+        if let OptionalTradeMetadata::Some(ref meta) = metadata {
             validate_metadata(meta)?;
         }
         let trade_id = increment_trade_counter(&env)?;
@@ -441,19 +507,18 @@ impl StellarEscrowContract {
         is_paused(&env)
     }
 
-    /// Batch create trades - optimized for multiple trades
     /// Update or replace metadata on an existing trade (seller only)
     pub fn update_trade_metadata(
         env: Env,
         trade_id: u64,
-        metadata: Option<TradeMetadata>,
+        metadata: OptionalTradeMetadata,
     ) -> Result<(), ContractError> {
         if !is_initialized(&env) {
             return Err(ContractError::NotInitialized);
         }
         let mut trade = get_trade(&env, trade_id)?;
         trade.seller.require_auth();
-        if let Some(ref meta) = metadata {
+        if let OptionalTradeMetadata::Some(ref meta) = metadata {
             validate_metadata(meta)?;
         }
         trade.metadata = metadata;
@@ -467,7 +532,7 @@ impl StellarEscrowContract {
     pub fn get_trade_metadata(
         env: Env,
         trade_id: u64,
-    ) -> Result<Option<TradeMetadata>, ContractError> {
+    ) -> Result<OptionalTradeMetadata, ContractError> {
         let trade = get_trade(&env, trade_id)?;
         Ok(trade.metadata)
     }
@@ -499,7 +564,6 @@ impl StellarEscrowContract {
         let fee_bps = tiers::effective_fee_bps(&env, &seller, base_fee_bps);
         let mut trade_ids = soroban_sdk::Vec::new(&env);
         let mut total_amount: u64 = 0;
-        let now = env.ledger().sequence();
 
         for (buyer, amount, arbitrator) in trades.iter() {
             if amount == 0 {
@@ -527,6 +591,7 @@ impl StellarEscrowContract {
                 status: TradeStatus::Created,
                 created_at: env.ledger().sequence(),
                 updated_at: env.ledger().sequence(),
+                metadata: OptionalTradeMetadata::None,
             };
             save_trade(&env, trade_id, &trade);
             index_trade_for_address(&env, &seller, trade_id);
@@ -573,14 +638,7 @@ impl StellarEscrowContract {
         }
         token_client.transfer(&buyer, &env.current_contract_address(), &(total_amount as i128));
 
-        // Single transfer for all trades (gas optimization)
-        token_client.transfer(&buyer, &env.current_contract_address(), &(total_amount as i128));
-
-        // Second pass: update trade statuses
-        for trade_id in trade_ids.iter() {
-            let mut trade = get_trade(&env, trade_id)?;
-            trade.status = TradeStatus::Funded;
-            trade.updated_at = env.ledger().sequence();
+        // Update trade statuses
         let now = env.ledger().sequence();
         for trade_id in trade_ids.iter() {
             let mut trade = get_trade(&env, trade_id)?;
@@ -843,7 +901,6 @@ impl StellarEscrowContract {
     ) -> Result<soroban_sdk::String, ContractError> {
         history::export_csv(&env, address, filter)
     }
-}
 
     // -------------------------------------------------------------------------
     // User Management (Issue #64)
@@ -990,5 +1047,82 @@ impl StellarEscrowContract {
         trade_id: u64,
     ) -> Result<soroban_sdk::String, ContractError> {
         trade_detail::export_trade_csv(&env, trade_id)
+    }
+
+    // -------------------------------------------------------------------------
+    // Trade Creation Form
+    // -------------------------------------------------------------------------
+
+    /// Validate a trade creation form input.
+    ///
+    /// Returns `Ok(())` when all fields are valid, or a [`ContractError`]
+    /// describing the first validation failure found.
+    pub fn validate_trade_form(
+        env: Env,
+        input: TradeFormInput,
+    ) -> Result<(), ContractError> {
+        trade_form::validate_input(&env, &input)
+    }
+
+    /// Build a trade preview from a validated form input.
+    ///
+    /// Shows the buyer, seller, amount, currency, arbitrator, and estimated
+    /// fee so the user can review before confirming.
+    pub fn preview_trade(
+        env: Env,
+        input: TradeFormInput,
+    ) -> Result<TradePreview, ContractError> {
+        trade_form::build_preview(&env, &input)
+    }
+
+    /// Confirm a trade after the user has reviewed the preview.
+    ///
+    /// Re-validates the input, checks that `preview` matches the current form
+    /// state, then creates the trade on-chain.  Returns the new trade ID.
+    ///
+    /// The seller must have authorised this call (`seller.require_auth()`).
+    pub fn confirm_trade_form(
+        env: Env,
+        input: TradeFormInput,
+        preview: TradePreview,
+    ) -> Result<u64, ContractError> {
+        input.seller.require_auth();
+        trade_form::confirm_trade(&env, &input, &preview)
+    }
+
+    // -------------------------------------------------------------------------
+    // Trade Funding Flow
+    // -------------------------------------------------------------------------
+
+    /// Return a funding preview for the buyer to review before submitting.
+    ///
+    /// Includes the trade amount, fee, buyer's current USDC balance, and
+    /// whether the buyer has already approved sufficient allowance.
+    /// If `allowance_sufficient` is false the buyer must call `approve` on the
+    /// USDC token contract before calling `fund_trade_with_preview`.
+    pub fn get_funding_preview(
+        env: Env,
+        trade_id: u64,
+        buyer: Address,
+    ) -> Result<FundingPreview, ContractError> {
+        fund_trade::get_funding_preview(&env, trade_id, &buyer)
+    }
+
+    /// Fund a trade after the buyer has reviewed and confirmed the preview.
+    ///
+    /// Validates that the preview matches current on-chain state, checks the
+    /// buyer's USDC allowance, transfers funds to escrow, and marks the trade
+    /// as Funded.  Prevents duplicate submissions while a transaction is
+    /// pending by re-checking status and allowance on every call.
+    ///
+    /// The buyer must have authorised this call (`buyer.require_auth()`).
+    pub fn fund_trade_with_preview(
+        env: Env,
+        trade_id: u64,
+        buyer: Address,
+        preview: FundingPreview,
+    ) -> Result<(), ContractError> {
+        buyer.require_auth();
+        fund_trade::execute_fund(&env, trade_id, &buyer, &preview)
     }
 }
