@@ -673,4 +673,143 @@ impl Database {
 
         Ok(())
     }
+
+    // =========================================================================
+    // Notification Operations
+    // =========================================================================
+
+    pub async fn get_notification_preferences(
+        &self,
+        address: &str,
+    ) -> Result<Option<crate::models::NotificationPreferences>, AppError> {
+        let row = sqlx::query_as::<_, crate::models::NotificationPreferences>(
+            "SELECT * FROM notification_preferences WHERE address = $1",
+        )
+        .bind(address)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    pub async fn upsert_notification_preferences(
+        &self,
+        address: &str,
+        upd: &crate::models::UpdateNotificationPreferences,
+    ) -> Result<crate::models::NotificationPreferences, AppError> {
+        // Fetch existing or use defaults, then apply partial update
+        let existing = self.get_notification_preferences(address).await?;
+        let base = existing.unwrap_or_else(|| crate::models::NotificationPreferences {
+            address: address.to_string(),
+            email_enabled: false,
+            email_address: None,
+            sms_enabled: false,
+            phone_number: None,
+            push_enabled: false,
+            push_token: None,
+            on_trade_created: true,
+            on_trade_funded: true,
+            on_trade_completed: true,
+            on_trade_confirmed: true,
+            on_dispute_raised: true,
+            on_dispute_resolved: true,
+            on_trade_cancelled: true,
+            updated_at: chrono::Utc::now(),
+        });
+
+        let row = sqlx::query_as::<_, crate::models::NotificationPreferences>(
+            r#"
+            INSERT INTO notification_preferences
+                (address, email_enabled, email_address, sms_enabled, phone_number,
+                 push_enabled, push_token,
+                 on_trade_created, on_trade_funded, on_trade_completed, on_trade_confirmed,
+                 on_dispute_raised, on_dispute_resolved, on_trade_cancelled, updated_at)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())
+            ON CONFLICT (address) DO UPDATE SET
+                email_enabled   = EXCLUDED.email_enabled,
+                email_address   = EXCLUDED.email_address,
+                sms_enabled     = EXCLUDED.sms_enabled,
+                phone_number    = EXCLUDED.phone_number,
+                push_enabled    = EXCLUDED.push_enabled,
+                push_token      = EXCLUDED.push_token,
+                on_trade_created    = EXCLUDED.on_trade_created,
+                on_trade_funded     = EXCLUDED.on_trade_funded,
+                on_trade_completed  = EXCLUDED.on_trade_completed,
+                on_trade_confirmed  = EXCLUDED.on_trade_confirmed,
+                on_dispute_raised   = EXCLUDED.on_dispute_raised,
+                on_dispute_resolved = EXCLUDED.on_dispute_resolved,
+                on_trade_cancelled  = EXCLUDED.on_trade_cancelled,
+                updated_at = NOW()
+            RETURNING *
+            "#,
+        )
+        .bind(address)
+        .bind(upd.email_enabled.unwrap_or(base.email_enabled))
+        .bind(upd.email_address.as_ref().or(base.email_address.as_ref()))
+        .bind(upd.sms_enabled.unwrap_or(base.sms_enabled))
+        .bind(upd.phone_number.as_ref().or(base.phone_number.as_ref()))
+        .bind(upd.push_enabled.unwrap_or(base.push_enabled))
+        .bind(upd.push_token.as_ref().or(base.push_token.as_ref()))
+        .bind(upd.on_trade_created.unwrap_or(base.on_trade_created))
+        .bind(upd.on_trade_funded.unwrap_or(base.on_trade_funded))
+        .bind(upd.on_trade_completed.unwrap_or(base.on_trade_completed))
+        .bind(upd.on_trade_confirmed.unwrap_or(base.on_trade_confirmed))
+        .bind(upd.on_dispute_raised.unwrap_or(base.on_dispute_raised))
+        .bind(upd.on_dispute_resolved.unwrap_or(base.on_dispute_resolved))
+        .bind(upd.on_trade_cancelled.unwrap_or(base.on_trade_cancelled))
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(row)
+    }
+
+    pub async fn log_notification(
+        &self,
+        address: &str,
+        channel: &str,
+        template_id: &str,
+        subject: Option<&str>,
+        body: &str,
+        result: Result<(), String>,
+    ) {
+        let (status, error) = match result {
+            Ok(()) => ("sent", None),
+            Err(e) => ("failed", Some(e)),
+        };
+        let _ = sqlx::query(
+            r#"
+            INSERT INTO notification_log (address, channel, template_id, subject, body, status, error)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            "#,
+        )
+        .bind(address)
+        .bind(channel)
+        .bind(template_id)
+        .bind(subject)
+        .bind(body)
+        .bind(status)
+        .bind(error)
+        .execute(&self.pool)
+        .await;
+    }
+
+    pub async fn get_notification_log(
+        &self,
+        address: &str,
+        limit: i64,
+    ) -> Result<Vec<crate::models::NotificationLogEntry>, AppError> {
+        let rows = sqlx::query_as::<_, crate::models::NotificationLogEntry>(
+            r#"
+            SELECT id, address, channel, template_id, subject, body, status, error, created_at
+            FROM notification_log
+            WHERE address = $1
+            ORDER BY created_at DESC
+            LIMIT $2
+            "#,
+        )
+        .bind(address)
+        .bind(limit.clamp(1, 200))
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
 }
