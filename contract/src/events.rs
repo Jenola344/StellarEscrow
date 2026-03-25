@@ -9,6 +9,14 @@ pub fn emit_trade_created(env: &Env, trade_id: u64, seller: Address, buyer: Addr
     );
 }
 
+pub fn emit_compliance_failed(env: &Env, user: Address, reason: &soroban_sdk::String) {
+    env.events().publish((symbol_short!("compl_fail"),), (user, reason.clone()));
+}
+
+pub fn emit_compliance_passed(env: &Env, trade_id: u64, seller: Address, buyer: Address, amount: u64) {
+    env.events().publish((symbol_short!("compl_pass"),), (trade_id, seller, buyer, amount));
+}
+
 pub fn emit_trade_funded(env: &Env, trade_id: u64) {
     env.events().publish((symbol_short!("funded"),), trade_id);
 }

@@ -72,6 +72,10 @@ fn validate_metadata(meta: &TradeMetadata) -> Result<(), ContractError> {
         if entry.value.len() > METADATA_MAX_VALUE_LEN {
             return Err(ContractError::MetadataValueTooLong);
         }
+    }
+    Ok(())
+}
+
 #[inline]
 fn require_initialized(env: &Env) -> Result<(), ContractError> {
     if !is_initialized(env) {
@@ -110,6 +114,42 @@ fn validate_metadata(meta: &OptionalMetadata) -> Result<(), ContractError> {
                 return Err(ContractError::MetadataValueTooLong);
             }
         }
+    }
+    Ok(())
+}
+
+fn require_admin(env: &Env, admin: &Address) -> Result<(), ContractError> {
+    let current_admin = get_admin(env)?;
+    if &current_admin != admin {
+        return Err(ContractError::Unauthorized);
+    }
+    admin.require_auth();
+    Ok(())
+}
+
+fn validate_user_compliance(env: &Env, user: &Address, amount: u64) -> Result<(), ContractError> {
+    let comp = storage::get_user_compliance(env, user).ok_or(ContractError::KycNotVerified)?;
+    if comp.kyc_status != crate::types::KycStatus::Verified {
+        events::emit_compliance_failed(env, user.clone(), &soroban_sdk::String::from_str(env, "KYC_NOT_VERIFIED"));
+        return Err(ContractError::KycNotVerified);
+    }
+    if !comp.aml_cleared {
+        events::emit_compliance_failed(env, user.clone(), &soroban_sdk::String::from_str(env, "AML_NOT_CLEARED"));
+        return Err(ContractError::AmlNotCleared);
+    }
+    if !storage::is_jurisdiction_allowed(env, &comp.jurisdiction) {
+        events::emit_compliance_failed(env, user.clone(), &soroban_sdk::String::from_str(env, "JURISDICTION_BLOCKED"));
+        return Err(ContractError::JurisdictionRestricted);
+    }
+    let user_limit = storage::get_user_trade_limit(env, user);
+    if user_limit > 0 && amount > user_limit {
+        events::emit_compliance_failed(env, user.clone(), &soroban_sdk::String::from_str(env, "USER_LIMIT_EXCEEDED"));
+        return Err(ContractError::TradeAmountLimitExceeded);
+    }
+    let global_limit = storage::get_global_trade_limit(env);
+    if amount > global_limit {
+        events::emit_compliance_failed(env, user.clone(), &soroban_sdk::String::from_str(env, "GLOBAL_LIMIT_EXCEEDED"));
+        return Err(ContractError::TradeAmountLimitExceeded);
     }
     Ok(())
 }
@@ -172,6 +212,64 @@ impl StellarEscrowContract {
         set_fee_bps(&env, fee_bps);
         events::emit_fee_updated(&env, fee_bps);
         Ok(())
+    }
+
+    pub fn set_user_compliance(
+        env: Env,
+        admin: Address,
+        user: Address,
+        compliance: crate::types::UserCompliance,
+    ) -> Result<(), ContractError> {
+        require_initialized(&env)?;
+        require_not_paused(&env)?;
+        require_admin(&env, &admin)?;
+        storage::save_user_compliance(&env, &user, &compliance);
+        Ok(())
+    }
+
+    pub fn get_user_compliance(env: Env, user: Address) -> Option<crate::types::UserCompliance> {
+        storage::get_user_compliance(&env, &user)
+    }
+
+    pub fn set_user_trade_limit(env: Env, admin: Address, user: Address, limit: u64) -> Result<(), ContractError> {
+        require_initialized(&env)?;
+        require_not_paused(&env)?;
+        require_admin(&env, &admin)?;
+        storage::set_user_trade_limit(&env, &user, limit);
+        Ok(())
+    }
+
+    pub fn get_user_trade_limit(env: Env, user: Address) -> u64 {
+        storage::get_user_trade_limit(&env, &user)
+    }
+
+    pub fn set_jurisdiction_rule(
+        env: Env,
+        admin: Address,
+        jurisdiction: soroban_sdk::String,
+        allowed: bool,
+    ) -> Result<(), ContractError> {
+        require_initialized(&env)?;
+        require_not_paused(&env)?;
+        require_admin(&env, &admin)?;
+        storage::set_jurisdiction_rule(&env, &jurisdiction, allowed);
+        Ok(())
+    }
+
+    pub fn is_jurisdiction_allowed(env: Env, jurisdiction: soroban_sdk::String) -> bool {
+        storage::is_jurisdiction_allowed(&env, &jurisdiction)
+    }
+
+    pub fn set_global_trade_limit(env: Env, admin: Address, limit: u64) -> Result<(), ContractError> {
+        require_initialized(&env)?;
+        require_not_paused(&env)?;
+        require_admin(&env, &admin)?;
+        storage::set_global_trade_limit(&env, limit);
+        Ok(())
+    }
+
+    pub fn get_global_trade_limit(env: Env) -> u64 {
+        storage::get_global_trade_limit(&env)
     }
 
     /// Withdraw accumulated fees for USDC (admin only) — backward-compatible
@@ -239,6 +337,8 @@ impl StellarEscrowContract {
             }
         }
         seller.require_auth();
+        validate_user_compliance(&env, &seller, amount)?;
+        validate_user_compliance(&env, &buyer, amount)?;
         if let Some(ref arb) = arbitrator {
             if !has_arbitrator(&env, arb) {
                 return Err(ContractError::ArbitratorNotRegistered);
@@ -275,7 +375,8 @@ impl StellarEscrowContract {
             metadata,
         };
         save_trade(&env, trade_id, &trade);
-        events::emit_trade_created(&env, trade_id, seller, buyer, amount);
+        events::emit_trade_created(&env, trade_id, seller.clone(), buyer.clone(), amount);
+        events::emit_compliance_passed(&env, trade_id, seller, buyer, amount);
         Ok(trade_id)
     }
 
