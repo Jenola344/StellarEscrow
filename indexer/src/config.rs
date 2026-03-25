@@ -1,11 +1,14 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::net::IpAddr;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
     pub stellar: StellarConfig,
+    pub rate_limit: RateLimitConfig,
+    pub storage: StorageConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,6 +28,25 @@ pub struct StellarConfig {
     pub horizon_url: String,
     pub start_ledger: Option<u32>,
     pub poll_interval_seconds: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RateLimitConfig {
+    /// Requests per minute for unauthenticated / default IPs.
+    pub default_rpm: u64,
+    /// Requests per minute for elevated-tier IPs.
+    pub elevated_rpm: u64,
+    /// Requests per minute for admin-tier IPs (effectively unlimited in practice).
+    pub admin_rpm: u64,
+    /// IPs that bypass rate limiting entirely.
+    #[serde(default)]
+    pub whitelist: Vec<IpAddr>,
+    /// IPs that are always blocked.
+    #[serde(default)]
+    pub blacklist: Vec<IpAddr>,
+pub struct StorageConfig {
+    /// Base directory for uploaded files
+    pub base_dir: String,
 }
 
 impl Config {
@@ -48,6 +70,15 @@ impl Default for Config {
                 horizon_url: "https://horizon-testnet.stellar.org".to_string(),
                 start_ledger: None,
                 poll_interval_seconds: 5,
+            },
+            rate_limit: RateLimitConfig {
+                default_rpm: 60,
+                elevated_rpm: 300,
+                admin_rpm: 6000,
+                whitelist: vec![],
+                blacklist: vec![],
+            storage: StorageConfig {
+                base_dir: "./uploads".to_string(),
             },
         }
     }

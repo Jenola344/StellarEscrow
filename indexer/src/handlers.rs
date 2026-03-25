@@ -10,11 +10,20 @@ use uuid::Uuid;
 use crate::error::AppError;
 use crate::health::HealthState;
 use crate::models::{
+    Event, EventQuery, EventStats, IndexerStatus, PaginatedResponse, ReplayRequest, StatsResponse,
+    WebSocketMessage,
+};
+use crate::websocket::WebSocketManager;
+use crate::database::Database;
+use crate::models::{EventQuery, PagedResponse, ReplayRequest, WebSocketMessage};
+use crate::models::{
     DiscoveryQuery, EventQuery, GlobalSearchQuery, GlobalSearchResponse, HistoryQuery, ReplayRequest,
     SuggestionQuery, TradeSearchQuery, WebSocketMessage,
 };
 use crate::websocket::WebSocketManager;
 use crate::{database::Database, models::Event, models::PagedResponse};
+use crate::fraud_service::FraudDetectionService;
+use crate::{database::Database, models::Event};
 
 /// Default page size — kept small for mobile clients.
 const DEFAULT_LIMIT: i64 = 20;
@@ -37,6 +46,8 @@ pub async fn api_index() -> Json<serde_json::Value> {
             "events_by_type":  "GET  /events/type/:event_type",
             "replay":          "POST /events/replay  {from_ledger, to_ledger?}",
             "websocket":       "GET  /ws",
+            "fraud_alerts":    "GET  /fraud/alerts",
+            "fraud_review":    "POST /fraud/review  {trade_id, status, reviewer, notes}",
             "help":            "GET  /help"
         }
     }))
@@ -45,6 +56,21 @@ pub async fn api_index() -> Json<serde_json::Value> {
 pub async fn get_events(
     Query(params): Query<EventQuery>,
     State(state): State<AppState>,
+) -> Result<Json<PaginatedResponse<Event>>, AppError> {
+    let limit = params.limit.unwrap_or(50);
+    let offset = params.offset.unwrap_or(0);
+    let query = EventQuery {
+        limit: Some(limit),
+        offset: Some(offset),
+        ..params
+    };
+
+    let (events, total) = tokio::try_join!(
+        state.database.get_events(&query),
+        state.database.get_event_count(None),
+    )?;
+
+    Ok(Json(PaginatedResponse::new(events, total, limit, offset)))
 ) -> Result<Json<PagedResponse<Event>>, AppError> {
     let limit = params.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
     let offset = params.offset.unwrap_or(0).max(0);
@@ -132,6 +158,44 @@ pub async fn ws_handler(
     ws.on_upgrade(move |socket| state.ws_manager.handle_connection(socket))
 }
 
+/// GET /status — indexer sync state for loading indicators.
+pub async fn get_status(
+    State(state): State<AppState>,
+) -> Result<Json<IndexerStatus>, AppError> {
+    let (total_events, latest) = tokio::try_join!(
+        state.database.get_event_count(None),
+        state.database.get_latest_ledger_global(),
+    )?;
+
+    let (latest_ledger, latest_ledger_time) = match latest {
+        Some((l, t)) => (Some(l), Some(t)),
+        None => (None, None),
+    };
+
+    Ok(Json(IndexerStatus {
+        syncing: true, // always true while the monitor is running
+        latest_ledger,
+        latest_ledger_time,
+        total_events,
+        server_time: chrono::Utc::now(),
+    }))
+}
+
+/// GET /stats — per-event-type counts for dashboard skeleton panels.
+pub async fn get_stats(
+    State(state): State<AppState>,
+) -> Result<Json<StatsResponse>, AppError> {
+    let (total_events, type_counts) = tokio::try_join!(
+        state.database.get_event_count(None),
+        state.database.get_event_type_counts(),
+    )?;
+
+    let by_type = type_counts
+        .into_iter()
+        .map(|(event_type, count)| EventStats { event_type, count })
+        .collect();
+
+    Ok(Json(StatsResponse { total_events, by_type }))
 pub async fn global_search(
     Query(params): Query<GlobalSearchQuery>,
     State(state): State<AppState>,
@@ -222,9 +286,39 @@ pub async fn search_history(
     Ok(Json(rows))
 }
 
+pub async fn get_fraud_alerts(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<serde_json::Value>>, AppError> {
+    let alerts = state.database.get_fraud_alerts().await?;
+    Ok(Json(alerts))
+}
+
+#[derive(Deserialize)]
+pub struct FraudReviewRequest {
+    pub trade_id: u64,
+    pub status: String,
+    pub reviewer: String,
+    pub notes: String,
+}
+
+pub async fn update_fraud_review(
+    State(state): State<AppState>,
+    Json(payload): Json<FraudReviewRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    state.database.update_fraud_review(
+        payload.trade_id,
+        &payload.status,
+        &payload.reviewer,
+        &payload.notes,
+    ).await?;
+    
+    Ok(Json(json!({ "status": "updated", "trade_id": payload.trade_id })))
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub database: Arc<Database>,
     pub ws_manager: Arc<WebSocketManager>,
     pub health: HealthState,
+    pub fraud_service: Arc<FraudDetectionService>,
 }

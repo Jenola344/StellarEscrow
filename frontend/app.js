@@ -28,7 +28,10 @@
         wsSocket: null,
         searchHistory: [],
         highContrastMode: false,
-        focusedElement: null
+        focusedElement: null,
+        walletConnected: false,
+        walletProvider: null,
+        walletAddress: null
     };
 
     // ============================================
@@ -783,6 +786,179 @@
     }
 
     // ============================================
+    // Wallet Integration
+    // ============================================
+    function initWalletUI() {
+        const connectBtn = $('#wallet-connect-btn');
+        const walletMenu = $('#wallet-menu');
+        const walletConnected = $('#wallet-connected');
+        const walletOptions = $$('.wallet-option');
+        const disconnectBtn = $('#disconnect-wallet-btn');
+        const switchWalletBtn = $('#switch-wallet-btn');
+        const walletMenuToggle = $('#wallet-menu-toggle');
+        const walletDropdown = $('#wallet-dropdown');
+
+        if (!connectBtn) return;
+
+        // Toggle wallet menu
+        connectBtn.addEventListener('click', () => {
+            const isOpen = !walletMenu.hidden;
+            walletMenu.hidden = isOpen;
+            connectBtn.setAttribute('aria-expanded', !isOpen);
+            if (!isOpen) {
+                announce('Wallet menu opened');
+            }
+        });
+
+        // Wallet option selection
+        walletOptions.forEach(option => {
+            option.addEventListener('click', async () => {
+                const provider = option.dataset.provider;
+                connectBtn.disabled = true;
+                connectBtn.textContent = 'Connecting...';
+                announce(`Connecting to ${provider} wallet...`);
+
+                const result = await window.StellarWallet.connectWallet(provider);
+                
+                if (result.success) {
+                    updateWalletUI(result.address, provider);
+                    walletMenu.hidden = true;
+                    connectBtn.setAttribute('aria-expanded', 'false');
+                    showToast(`Connected to ${window.StellarWallet.getProviderDisplayName(provider)}`, 'success');
+                    announce(`Successfully connected to ${provider} wallet`);
+                } else {
+                    showToast(`Failed to connect: ${result.error}`, 'error');
+                    announce(`Failed to connect to ${provider} wallet: ${result.error}`, 'assertive');
+                    connectBtn.textContent = 'Connect Wallet';
+                    connectBtn.disabled = false;
+                }
+            });
+        });
+
+        // Disconnect wallet
+        if (disconnectBtn) {
+            disconnectBtn.addEventListener('click', () => {
+                window.StellarWallet.disconnectWallet();
+                updateWalletUI(null, null);
+                walletDropdown.hidden = true;
+                walletMenuToggle.setAttribute('aria-expanded', 'false');
+                showToast('Wallet disconnected', 'info');
+                announce('Wallet disconnected');
+            });
+        }
+
+        // Switch wallet
+        if (switchWalletBtn) {
+            switchWalletBtn.addEventListener('click', () => {
+                walletDropdown.hidden = true;
+                walletMenuToggle.setAttribute('aria-expanded', 'false');
+                walletMenu.hidden = false;
+                connectBtn.setAttribute('aria-expanded', 'true');
+                announce('Wallet menu opened for switching');
+            });
+        }
+
+        // Wallet menu toggle
+        if (walletMenuToggle) {
+            walletMenuToggle.addEventListener('click', () => {
+                const isOpen = !walletDropdown.hidden;
+                walletDropdown.hidden = isOpen;
+                walletMenuToggle.setAttribute('aria-expanded', !isOpen);
+            });
+        }
+
+        // Close menus when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('#wallet-container')) {
+                walletMenu.hidden = true;
+                walletDropdown.hidden = true;
+                connectBtn.setAttribute('aria-expanded', 'false');
+                walletMenuToggle.setAttribute('aria-expanded', 'false');
+            }
+        });
+
+        // Listen for wallet events
+        document.addEventListener('wallet:connected', (e) => {
+            state.walletConnected = true;
+            state.walletProvider = e.detail.provider;
+            state.walletAddress = e.detail.address;
+        });
+
+        document.addEventListener('wallet:disconnected', () => {
+            state.walletConnected = false;
+            state.walletProvider = null;
+            state.walletAddress = null;
+        });
+    }
+
+    function updateWalletUI(address, provider) {
+        const connectBtn = $('#wallet-connect-btn');
+        const walletConnected = $('#wallet-connected');
+        const walletProviderBadge = $('#wallet-provider-badge');
+        const walletAddressDisplay = $('#wallet-address-display');
+
+        if (address && provider) {
+            connectBtn.hidden = true;
+            walletConnected.hidden = false;
+            
+            const displayName = window.StellarWallet.getProviderDisplayName(provider);
+            const formattedAddress = window.StellarWallet.formatAddress(address);
+            
+            walletProviderBadge.textContent = displayName;
+            walletProviderBadge.className = `wallet-provider-badge ${provider}`;
+            walletAddressDisplay.textContent = formattedAddress;
+            walletAddressDisplay.title = address;
+            
+            state.walletConnected = true;
+            state.walletProvider = provider;
+            state.walletAddress = address;
+        } else {
+            connectBtn.hidden = false;
+            walletConnected.hidden = true;
+            connectBtn.textContent = 'Connect Wallet';
+            connectBtn.disabled = false;
+            
+            state.walletConnected = false;
+            state.walletProvider = null;
+            state.walletAddress = null;
+        }
+    }
+
+    function restoreWalletConnection() {
+        if (window.StellarWallet && window.StellarWallet.loadWalletPreferences()) {
+            const walletState = window.StellarWallet.getState();
+            if (walletState.address && walletState.provider) {
+                updateWalletUI(walletState.address, walletState.provider);
+                announce(`Wallet restored: ${window.StellarWallet.getProviderDisplayName(walletState.provider)}`);
+            }
+        }
+    }
+
+    // ============================================
+    // Reduced Motion Preference
+    // ============================================
+    function checkReducedMotion() {
+        const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+        
+        prefersReducedMotion.addEventListener('change', (e) => {
+            if (e.matches) {
+                document.documentElement.style.setProperty('--transition-fast', '0ms');
+                document.documentElement.style.setProperty('--transition-normal', '0ms');
+                announce('Reduced motion enabled');
+            } else {
+                document.documentElement.style.setProperty('--transition-fast', '150ms ease');
+                document.documentElement.style.setProperty('--transition-normal', '250ms ease');
+                announce('Reduced motion disabled');
+            }
+        });
+
+        if (prefersReducedMotion.matches) {
+            document.documentElement.style.setProperty('--transition-fast', '0ms');
+            document.documentElement.style.setProperty('--transition-normal', '0ms');
+        }
+    }
+
+    // ============================================
     // Initialization
     // ============================================
     async function init() {
@@ -800,6 +976,27 @@
         initSmoothScroll();
         initFocusManagement();
         checkReducedMotion();
+
+        // Initialize wallet
+        initWalletUI();
+        restoreWalletConnection();
+
+        // Initialize disputes
+        if (window.DisputeManager) {
+            window.DisputeManager.initDisputeUI();
+        }
+
+        // Initialize arbitrator dashboard
+        if (window.ArbitratorDashboard) {
+            window.ArbitratorDashboard.initArbitratorDashboard();
+        }
+
+        // Initialize notifications
+        if (window.NotificationManager) {
+            window.NotificationManager.initNotificationUI();
+            window.NotificationManager.loadPreferences();
+            window.NotificationManager.connectWebSocket();
+        }
 
         // Initialize high contrast toggle
         const contrastToggle = $('#contrast-toggle');
