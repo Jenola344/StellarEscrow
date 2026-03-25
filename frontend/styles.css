@@ -2692,3 +2692,56 @@ body.offline .offline-indicator {
   box-sizing: border-box;
   line-height: 1.4;
 }
+
+/* ============================================
+   Error Handling Styles
+   ============================================ */
+
+.error-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+}
+
+.error-modal[hidden] {
+    display: none;
+}
+
+.error-modal-content {
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-error);
+    border-radius: var(--radius-md, 8px);
+    padding: var(--space-xl);
+    max-width: 28rem;
+    width: 90%;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.error-modal-title {
+    color: var(--color-error);
+    font-size: var(--font-size-lg);
+    margin: 0 0 var(--space-sm);
+}
+
+.error-modal-message {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-base);
+    margin: 0 0 var(--space-lg);
+    line-height: 1.5;
+}
+
+.error-modal-actions {
+    display: flex;
+    gap: var(--space-sm);
+    justify-content: flex-end;
+}
+
+/* Fatal toast variant */
+.toast.fatal {
+    border-left: 4px solid var(--color-error);
+    background: #2a1010;
+}

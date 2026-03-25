@@ -977,6 +977,18 @@
     <!-- Toast notifications container -->
     <div id="toast-container" class="toast-container" role="alert" aria-live="assertive" aria-label="Notifications"></div>
 
+    <!-- Error modal -->
+    <div id="error-modal" class="error-modal" role="alertdialog" aria-modal="true" aria-labelledby="error-modal-title" aria-describedby="error-modal-message" hidden>
+        <div class="error-modal-content">
+            <h2 id="error-modal-title" class="error-modal-title">Something went wrong</h2>
+            <p id="error-modal-message" class="error-modal-message"></p>
+            <div class="error-modal-actions">
+                <button id="error-modal-retry" type="button" class="btn btn-primary" hidden>Retry</button>
+                <button id="error-modal-close" type="button" class="btn btn-ghost" onclick="document.getElementById('error-modal').hidden=true">Dismiss</button>
+            </div>
+        </div>
+    </div>
+
     <script src="compat.js"></script>
     <script src="wallet.js"></script>
     <script type="module" src="app.js"></script>
