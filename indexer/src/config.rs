@@ -44,6 +44,19 @@ pub struct RateLimitConfig {
     /// IPs that are always blocked.
     #[serde(default)]
     pub blacklist: Vec<IpAddr>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthConfig {
+    /// Shared API keys for regular clients.
+    #[serde(default)]
+    pub api_keys: Vec<String>,
+    /// Admin API keys for privileged routes.
+    #[serde(default)]
+    pub admin_keys: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageConfig {
     /// Base directory for uploaded files
     pub base_dir: String,
@@ -77,6 +90,11 @@ impl Default for Config {
                 admin_rpm: 6000,
                 whitelist: vec![],
                 blacklist: vec![],
+            },
+            auth: AuthConfig {
+                api_keys: vec!["demo-key-123".to_string()],
+                admin_keys: vec!["admin-key-123".to_string()],
+            },
             storage: StorageConfig {
                 base_dir: "./uploads".to_string(),
             },

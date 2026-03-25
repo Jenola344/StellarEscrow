@@ -62,25 +62,28 @@ pub async fn api_index() -> Json<serde_json::Value> {
     }))
 }
 
+pub async fn api_docs() -> Json<serde_json::Value> {
+    Json(json!({
+        "api_name": "StellarEscrow Indexer API",
+        "api_version": "v1",
+        "base_url": "/api/v1",
+        "authentication": {
+            "scheme": "API_KEY",
+            "headers": ["Authorization: Bearer <API_KEY>", "x-api-key: <API_KEY>"],
+            "admin_key": "for /admin endpoints"
+        },
+        "rate_limit": {
+            "default_rpm": "config.rate_limit.default_rpm",
+            "elevated_rpm": "config.rate_limit.elevated_rpm",
+            "admin_rpm": "config.rate_limit.admin_rpm"
+        }
+    }))
+}
+
 pub async fn get_events(
     Query(params): Query<EventQuery>,
     State(state): State<AppState>,
 ) -> Result<Json<PaginatedResponse<Event>>, AppError> {
-    let limit = params.limit.unwrap_or(50);
-    let offset = params.offset.unwrap_or(0);
-    let query = EventQuery {
-        limit: Some(limit),
-        offset: Some(offset),
-        ..params
-    };
-
-    let (events, total) = tokio::try_join!(
-        state.database.get_events(&query),
-        state.database.get_event_count(None),
-    )?;
-
-    Ok(Json(PaginatedResponse::new(events, total, limit, offset)))
-) -> Result<Json<PagedResponse<Event>>, AppError> {
     let limit = params.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
     let offset = params.offset.unwrap_or(0).max(0);
     let query = EventQuery { limit: Some(limit), offset: Some(offset), ..params };
@@ -90,13 +93,21 @@ pub async fn get_events(
         state.database.count_events(&query),
     )?;
 
-    Ok(Json(PagedResponse {
+    Ok(Json(PaginatedResponse {
         has_more: offset + limit < total,
         items: events,
         total,
         limit,
         offset,
     }))
+}
+
+pub async fn get_event_by_id(
+    Path(id): Path<Uuid>,
+    State(state): State<AppState>,
+) -> Result<Json<Event>, AppError> {
+    let event = state.database.get_event_by_id(id).await?;
+    Ok(Json(event))
 }
 
 pub async fn get_event_by_id(
