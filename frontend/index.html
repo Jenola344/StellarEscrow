@@ -53,9 +53,122 @@
                     <li role="none"><a href="#dashboard" role="menuitem" class="nav-link active" aria-current="page">Dashboard</a></li>
                     <li role="none"><a href="#events" role="menuitem" class="nav-link">View Events</a></li>
                     <li role="none"><a href="#search" role="menuitem" class="nav-link">Search</a></li>
+                    <li role="none"><a href="#disputes" role="menuitem" class="nav-link">Disputes</a></li>
+                    <li role="none"><a href="#arbitrator" role="menuitem" class="nav-link">Arbitrator</a></li>
                     <li role="none"><a href="#help" role="menuitem" class="nav-link">Help Center</a></li>
                     <li role="none"><a href="#api-docs" role="menuitem" class="nav-link">API Documentation</a></li>
                 </ul>
+                
+                <!-- Notifications -->
+                <div class="notification-controls">
+                    <button 
+                        id="notification-center-btn"
+                        type="button"
+                        class="btn btn-icon"
+                        aria-label="Notification center"
+                        aria-expanded="false"
+                        aria-controls="notification-center"
+                    >
+                        🔔
+                        <span id="notification-badge" class="notification-badge" hidden>0</span>
+                    </button>
+                    <button 
+                        id="notification-prefs-btn"
+                        type="button"
+                        class="btn btn-icon"
+                        aria-label="Notification preferences"
+                    >
+                        ⚙️
+                    </button>
+                </div>
+                
+                <!-- Wallet Connection -->
+                <div id="wallet-container" class="wallet-container" role="region" aria-label="Wallet connection">
+                    <button 
+                        id="wallet-connect-btn"
+                        class="btn btn-wallet"
+                        type="button"
+                        aria-label="Connect Stellar wallet"
+                        aria-expanded="false"
+                        aria-controls="wallet-menu"
+                    >
+                        <span class="wallet-icon" aria-hidden="true">◆</span>
+                        <span class="wallet-text">Connect Wallet</span>
+                    </button>
+                    
+                    <!-- Wallet Menu -->
+                    <div id="wallet-menu" class="wallet-menu" hidden role="menu" aria-label="Wallet options">
+                        <div class="wallet-menu-header">
+                            <h3>Select Wallet</h3>
+                        </div>
+                        <button 
+                            type="button"
+                            class="wallet-option"
+                            data-provider="freighter"
+                            role="menuitem"
+                            aria-label="Connect with Freighter wallet"
+                        >
+                            <span class="wallet-option-icon">🔐</span>
+                            <span class="wallet-option-name">Freighter</span>
+                        </button>
+                        <button 
+                            type="button"
+                            class="wallet-option"
+                            data-provider="albedo"
+                            role="menuitem"
+                            aria-label="Connect with Albedo wallet"
+                        >
+                            <span class="wallet-option-icon">🛡️</span>
+                            <span class="wallet-option-name">Albedo</span>
+                        </button>
+                        <button 
+                            type="button"
+                            class="wallet-option"
+                            data-provider="walletconnect"
+                            role="menuitem"
+                            aria-label="Connect with WalletConnect"
+                        >
+                            <span class="wallet-option-icon">📱</span>
+                            <span class="wallet-option-name">WalletConnect</span>
+                        </button>
+                    </div>
+                    
+                    <!-- Connected Wallet Display -->
+                    <div id="wallet-connected" class="wallet-connected" hidden>
+                        <div class="wallet-info">
+                            <span id="wallet-provider-badge" class="wallet-provider-badge"></span>
+                            <span id="wallet-address-display" class="wallet-address-display"></span>
+                        </div>
+                        <button 
+                            id="wallet-menu-toggle"
+                            type="button"
+                            class="wallet-menu-toggle"
+                            aria-label="Wallet menu"
+                            aria-expanded="false"
+                            aria-controls="wallet-dropdown"
+                        >
+                            ⋮
+                        </button>
+                        <div id="wallet-dropdown" class="wallet-dropdown" hidden role="menu">
+                            <button 
+                                type="button"
+                                class="wallet-dropdown-item"
+                                id="switch-wallet-btn"
+                                role="menuitem"
+                            >
+                                Switch Wallet
+                            </button>
+                            <button 
+                                type="button"
+                                class="wallet-dropdown-item"
+                                id="disconnect-wallet-btn"
+                                role="menuitem"
+                            >
+                                Disconnect
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
         </nav>
     </header>
@@ -289,6 +402,218 @@
             </div>
         </section>
 
+        <!-- Disputes Section -->
+        <section id="disputes" aria-labelledby="disputes-heading" class="section">
+            <div class="container">
+                <h2 id="disputes-heading" class="section-title">Dispute Management</h2>
+                
+                <div class="disputes-header">
+                    <button 
+                        id="raise-dispute-btn"
+                        type="button"
+                        class="btn btn-primary"
+                        aria-label="Raise a new dispute"
+                    >
+                        Raise Dispute
+                    </button>
+                </div>
+
+                <!-- Disputes List -->
+                <div class="disputes-container" role="region" aria-label="Disputes list">
+                    <div id="disputes-list" class="disputes-list">
+                        <p class="empty-state">No disputes found</p>
+                    </div>
+                </div>
+
+                <!-- Dispute Details -->
+                <div id="dispute-details" class="dispute-details" role="region" aria-label="Dispute details">
+                </div>
+            </div>
+        </section>
+
+        <!-- Dispute Modal -->
+        <div id="dispute-modal" class="modal" hidden role="dialog" aria-labelledby="dispute-modal-title" aria-modal="true">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="dispute-modal-title">Raise Dispute</h3>
+                    <button 
+                        id="dispute-modal-close"
+                        type="button"
+                        class="btn btn-close"
+                        aria-label="Close dialog"
+                    >
+                        ✕
+                    </button>
+                </div>
+
+                <form id="dispute-form" class="dispute-form">
+                    <div class="form-group">
+                        <label for="dispute-trade-id" class="form-label">Trade ID *</label>
+                        <input 
+                            type="number"
+                            id="dispute-trade-id"
+                            class="form-input"
+                            required
+                            min="1"
+                            aria-describedby="trade-id-help"
+                        >
+                        <span id="trade-id-help" class="form-help">Enter the trade ID to dispute</span>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="dispute-reason" class="form-label">Reason for Dispute *</label>
+                        <textarea 
+                            id="dispute-reason"
+                            class="form-textarea"
+                            required
+                            rows="4"
+                            placeholder="Describe the issue..."
+                            aria-describedby="reason-help"
+                        ></textarea>
+                        <span id="reason-help" class="form-help">Provide details about the dispute</span>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="evidence-input" class="form-label">Upload Evidence</label>
+                        <input 
+                            type="file"
+                            id="evidence-input"
+                            class="form-input"
+                            multiple
+                            accept=".jpg,.jpeg,.png,.pdf,.txt"
+                            aria-describedby="evidence-help"
+                        >
+                        <span id="evidence-help" class="form-help">
+                            Supported: JPG, PNG, PDF, TXT (max 5MB each)
+                        </span>
+                    </div>
+
+                    <div id="evidence-list" class="evidence-list">
+                        <p class="empty-state">No evidence uploaded</p>
+                    </div>
+
+                    <div class="form-actions">
+                        <button 
+                            type="submit"
+                            class="btn btn-primary"
+                            aria-label="Submit dispute"
+                        >
+                            Submit Dispute
+                        </button>
+                        <button 
+                            type="button"
+                            class="btn btn-secondary"
+                            id="dispute-cancel-btn"
+                            aria-label="Cancel"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Arbitrator Dashboard Section -->
+        <section id="arbitrator" aria-labelledby="arbitrator-heading" class="section">
+            <div class="container">
+                <h2 id="arbitrator-heading" class="section-title">Arbitrator Dashboard</h2>
+                
+                <div id="arbitrator-dashboard" role="region" aria-label="Arbitrator dashboard">
+                    <!-- Performance Metrics -->
+                    <div id="performance-metrics" class="performance-section">
+                    </div>
+
+                    <!-- Statistics -->
+                    <div id="arbitrator-stats" class="stats-section">
+                    </div>
+
+                    <!-- Assigned Disputes -->
+                    <div class="disputes-section">
+                        <h3>Assigned Disputes</h3>
+                        <div id="assigned-disputes" class="assigned-disputes-list">
+                            <p class="empty-state">Loading disputes...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Resolution Modal -->
+        <div id="resolution-modal" class="modal" hidden role="dialog" aria-labelledby="resolution-modal-title" aria-modal="true">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="resolution-modal-title">Resolve Dispute</h3>
+                    <button 
+                        type="button"
+                        class="btn btn-close"
+                        id="resolution-modal-close"
+                        aria-label="Close dialog"
+                    >
+                        ✕
+                    </button>
+                </div>
+
+                <div id="resolution-dispute-info" class="dispute-info">
+                </div>
+
+                <form id="resolution-form" class="resolution-form">
+                    <div class="form-group">
+                        <input type="hidden" id="resolution-dispute-id">
+                        
+                        <label class="form-label">Resolution Decision *</label>
+                        <div class="resolution-options">
+                            <label class="radio-label">
+                                <input 
+                                    type="radio"
+                                    name="resolution"
+                                    value="ReleaseToBuyer"
+                                    required
+                                >
+                                <span>Release to Buyer</span>
+                            </label>
+                            <label class="radio-label">
+                                <input 
+                                    type="radio"
+                                    name="resolution"
+                                    value="ReleaseToSeller"
+                                    required
+                                >
+                                <span>Release to Seller</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="resolution-notes" class="form-label">Resolution Notes</label>
+                        <textarea 
+                            id="resolution-notes"
+                            class="form-textarea"
+                            rows="4"
+                            placeholder="Explain your decision..."
+                        ></textarea>
+                    </div>
+
+                    <div class="form-actions">
+                        <button 
+                            type="submit"
+                            class="btn btn-primary"
+                            aria-label="Submit resolution"
+                        >
+                            Submit Resolution
+                        </button>
+                        <button 
+                            type="button"
+                            class="btn btn-secondary"
+                            id="resolution-cancel-btn"
+                            aria-label="Cancel"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
         <!-- Help Center Section -->
         <section id="help" aria-labelledby="help-heading" class="section">
             <div class="container">
@@ -355,6 +680,122 @@
                 </div>
             </div>
         </section>
+
+        <!-- Notification Center -->
+        <div id="notification-center" class="notification-center" hidden role="region" aria-label="Notification center">
+            <div class="notification-center-header">
+                <h3>Notifications</h3>
+                <button 
+                    type="button"
+                    class="btn btn-close"
+                    id="notification-center-close"
+                    aria-label="Close notification center"
+                >
+                    ✕
+                </button>
+            </div>
+            <div class="notification-center-list">
+                <p class="empty-state">No notifications</p>
+            </div>
+        </div>
+
+        <!-- Notification Preferences Modal -->
+        <div id="notification-prefs-modal" class="modal" hidden role="dialog" aria-labelledby="notification-prefs-title" aria-modal="true">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="notification-prefs-title">Notification Preferences</h3>
+                    <button 
+                        type="button"
+                        class="btn btn-close"
+                        id="notification-prefs-close"
+                        aria-label="Close dialog"
+                    >
+                        ✕
+                    </button>
+                </div>
+
+                <form id="notification-prefs-form" class="notification-prefs-form">
+                    <div class="form-section">
+                        <h4>Notification Types</h4>
+                        
+                        <label class="checkbox-label">
+                            <input 
+                                type="checkbox"
+                                id="pref-trade-updates"
+                                checked
+                            >
+                            <span>Trade Updates</span>
+                        </label>
+
+                        <label class="checkbox-label">
+                            <input 
+                                type="checkbox"
+                                id="pref-disputes"
+                                checked
+                            >
+                            <span>Disputes</span>
+                        </label>
+
+                        <label class="checkbox-label">
+                            <input 
+                                type="checkbox"
+                                id="pref-arbitration"
+                                checked
+                            >
+                            <span>Arbitration</span>
+                        </label>
+                    </div>
+
+                    <div class="form-section">
+                        <h4>Notification Channels</h4>
+                        
+                        <label class="checkbox-label">
+                            <input 
+                                type="checkbox"
+                                id="pref-push"
+                            >
+                            <span>Push Notifications</span>
+                        </label>
+                        <button 
+                            type="button"
+                            id="request-push-permission"
+                            class="btn btn-sm btn-secondary"
+                        >
+                            Enable Push
+                        </button>
+
+                        <label class="checkbox-label">
+                            <input 
+                                type="checkbox"
+                                id="pref-email"
+                            >
+                            <span>Email Notifications</span>
+                        </label>
+
+                        <input 
+                            type="email"
+                            id="pref-email-address"
+                            class="form-input"
+                            placeholder="your@email.com"
+                            aria-label="Email address for notifications"
+                        >
+                    </div>
+
+                    <div class="form-actions">
+                        <button 
+                            type="submit"
+                            class="btn btn-primary"
+                            aria-label="Save preferences"
+                        >
+                            Save Preferences
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Notification Toast Container -->
+        <div id="notification-toast-container" class="notification-toast-container" role="region" aria-label="Notifications" aria-live="polite"></div>
 
         <!-- API Documentation Section -->
         <section id="api-docs" aria-labelledby="api-docs-heading" class="section">
@@ -499,6 +940,10 @@
     <!-- Toast notifications container -->
     <div id="toast-container" class="toast-container" role="alert" aria-live="assertive" aria-label="Notifications"></div>
 
+    <script src="wallet.js"></script>
+    <script src="disputes.js"></script>
+    <script src="arbitrator.js"></script>
+    <script src="notifications.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
