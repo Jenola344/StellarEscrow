@@ -6,7 +6,14 @@
     "build": "npm run build --workspace=app",
     "test": "npm run test --workspaces --if-present",
     "test:coverage": "npm run test:coverage --workspaces --if-present",
-    "test:e2e": "npm run test:e2e --workspace=components"
+    "test:e2e": "npm run test:e2e --workspace=components",
+    "test:browser": "playwright test",
+    "test:browser:ui": "playwright test --ui",
+    "test:browser:report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.43.0",
+    "serve": "^14.2.3"
   },
   "workspaces": [
     "app",
