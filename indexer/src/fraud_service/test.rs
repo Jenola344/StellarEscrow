@@ -1,13 +1,13 @@
 #[cfg(test)]
 mod tests {
-    use crate::fraud_service::{FraudDetectionService, FraudReport};
-    use crate::fraud_service::rules::RuleEngine;
-    use crate::models::{Event, TradeCreatedData, TradeConfirmedData};
     use crate::database::Database;
-    use std::sync::Arc;
-    use sqlx::PgPool;
-    use uuid::Uuid;
+    use crate::fraud_service::rules::RuleEngine;
+    use crate::fraud_service::{FraudDetectionService, FraudReport};
+    use crate::models::{Event, TradeConfirmedData, TradeCreatedData};
     use chrono::Utc;
+    use sqlx::PgPool;
+    use std::sync::Arc;
+    use uuid::Uuid;
 
     // Helper to create a mock Event
     fn create_mock_event(event_type: &str, data: serde_json::Value) -> Event {
@@ -27,7 +27,7 @@ mod tests {
     async fn test_fraud_detection_flow() {
         // Mock rule engine for isolated testing
         let engine = RuleEngine::new(vec!["GBLACK...".to_string()]);
-        
+
         // 1. Test Blacklist Rule
         let res = engine.check_blacklist("GBLACK...");
         assert!(res.is_some(), "Blacklisted address should be flagged");
@@ -36,12 +36,16 @@ mod tests {
         // 2. Test Velocity Rule (Simulated)
         let mut recent_events = Vec::new();
         for i in 0..15 {
-            recent_events.push(create_mock_event("trade_created", serde_json::to_value(TradeCreatedData {
-                trade_id: i,
-                seller: "GUSER...".to_string(),
-                buyer: "GBUYER...".to_string(),
-                amount: 100,
-            }).unwrap()));
+            recent_events.push(create_mock_event(
+                "trade_created",
+                serde_json::to_value(TradeCreatedData {
+                    trade_id: i,
+                    seller: "GUSER...".to_string(),
+                    buyer: "GBUYER...".to_string(),
+                    amount: 100,
+                })
+                .unwrap(),
+            ));
         }
         let res = engine.check_velocity(&recent_events, "GUSER...");
         assert!(res.is_some(), "High velocity should be flagged");

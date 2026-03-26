@@ -15,11 +15,13 @@ variable "aws_region" {
 
 variable "app_version" {
   description = "Application version tag — used for tagging and image selection"
+  description = "Application version tag (e.g. 1.2.3) — used for tagging and image selection"
   type        = string
   default     = "latest"
 }
 
 # ── Networking ────────────────────────────────────────────────────────────────
+# ── Networking ──────────────────────────────────────────────────────────────
 
 variable "vpc_cidr" {
   description = "CIDR block for the VPC"
@@ -34,6 +36,7 @@ variable "availability_zones" {
 }
 
 # ── Database ──────────────────────────────────────────────────────────────────
+# ── Database ─────────────────────────────────────────────────────────────────
 
 variable "db_instance_class" {
   description = "RDS instance class"
@@ -56,6 +59,7 @@ variable "db_username" {
 
 variable "db_password" {
   description = "PostgreSQL master password — inject via TF_VAR_db_password"
+  description = "PostgreSQL master password — inject via TF_VAR_db_password or secrets manager"
   type        = string
   sensitive   = true
 }
@@ -70,8 +74,15 @@ variable "db_allocated_storage_gb" {
 
 variable "api_image" {
   description = "Docker image URI for the API service"
+  description = "Docker image URI for the API service (ECR or Docker Hub)"
   type        = string
   default     = "stellarescrow/api:latest"
+}
+
+variable "api_desired_count" {
+  description = "Number of API ECS tasks to run"
+  type        = number
+  default     = 1
 }
 
 variable "api_cpu" {

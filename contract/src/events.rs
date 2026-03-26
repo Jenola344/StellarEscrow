@@ -329,3 +329,24 @@ pub fn emit_oracle_price_fetched(env: &Env, base: Address, quote: Address, price
 pub fn emit_oracle_unavailable(env: &Env, base: Address, quote: Address) {
     env.events().publish((cat_oracle(), symbol_short!("orc_err")), EvOracleUnavailable { v: EVENT_VERSION, base, quote });
 }
+
+// ---------------------------------------------------------------------------
+// Upgrade system events
+// ---------------------------------------------------------------------------
+
+#[contracttype] #[derive(Clone, Debug)]
+pub struct EvUpgradeProposed   { pub v: u32, pub proposed_by: Address, pub executable_after: u32, pub description: String }
+#[contracttype] #[derive(Clone, Debug)]
+pub struct EvUpgradeCancelled  { pub v: u32, pub cancelled_by: Address }
+#[contracttype] #[derive(Clone, Debug)]
+pub struct EvUpgradeRolledBack { pub v: u32, pub rolled_back_by: Address, pub restored_version: u32 }
+
+pub fn emit_upgrade_proposed(env: &Env, proposed_by: Address, executable_after: u32, description: String) {
+    env.events().publish((cat_sys(), symbol_short!("up_prop")), EvUpgradeProposed { v: EVENT_VERSION, proposed_by, executable_after, description });
+}
+pub fn emit_upgrade_cancelled(env: &Env, cancelled_by: Address) {
+    env.events().publish((cat_sys(), symbol_short!("up_can")), EvUpgradeCancelled { v: EVENT_VERSION, cancelled_by });
+}
+pub fn emit_upgrade_rolled_back(env: &Env, rolled_back_by: Address, restored_version: u32) {
+    env.events().publish((cat_sys(), symbol_short!("up_rb")), EvUpgradeRolledBack { v: EVENT_VERSION, rolled_back_by, restored_version });
+}

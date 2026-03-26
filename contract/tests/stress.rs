@@ -67,18 +67,19 @@ fn setup() -> Harness<'static> {
     client.initialize(&admin, &token_addr, &100u32); // 1 % fee
     client.register_arbitrator(&arbitrator);
 
-    Harness { env, token_addr, admin, arbitrator, client }
+    Harness {
+        env,
+        token_addr,
+        admin,
+        arbitrator,
+        client,
+    }
 }
 
 /// Mint `amount` USDC to `addr` and approve the contract to spend it.
 fn fund_account(h: &Harness, addr: &Address, amount: i128) {
     token::StellarAssetClient::new(&h.env, &h.token_addr).mint(addr, &amount);
-    token::Client::new(&h.env, &h.token_addr).approve(
-        addr,
-        &h.client.address,
-        &amount,
-        &200u32,
-    );
+    token::Client::new(&h.env, &h.token_addr).approve(addr, &h.client.address, &amount, &200u32);
 }
 
 // ---------------------------------------------------------------------------
@@ -138,7 +139,10 @@ fn run_dispute_cycle(h: &Harness) {
     );
     h.client.fund_trade(&id);
     h.client.raise_dispute(&id);
-    h.client.resolve_dispute(&id, &stellar_escrow_contract::DisputeResolution::ReleaseToSeller);
+    h.client.resolve_dispute(
+        &id,
+        &stellar_escrow_contract::DisputeResolution::ReleaseToSeller,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -161,7 +165,11 @@ fn bench<F: FnOnce()>(env: &Env, f: F) -> BenchResult {
     let instructions = budget.cpu_instruction_cost().get_total_cpu_insns_consumed();
     let mem_bytes = budget.mem_bytes_cost().get_total_mem_bytes_consumed();
 
-    BenchResult { wall_ns, instructions, mem_bytes }
+    BenchResult {
+        wall_ns,
+        instructions,
+        mem_bytes,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -202,9 +210,15 @@ fn stress_load_mixed_concurrent_operations() {
     // Interleave creates, happy paths, and disputes
     for i in 0..30u32 {
         match i % 3 {
-            0 => { create_n_trades(&h, 1); }
-            1 => { run_happy_path(&h); }
-            _ => { run_dispute_cycle(&h); }
+            0 => {
+                create_n_trades(&h, 1);
+            }
+            1 => {
+                run_happy_path(&h);
+            }
+            _ => {
+                run_dispute_cycle(&h);
+            }
         }
     }
 }
@@ -220,17 +234,26 @@ fn bench_create_trade_instructions() {
     let buyer = Address::generate(&h.env);
 
     let r = bench(&h.env, || {
-        h.client.create_trade(&seller, &buyer, &1_000_000u64, &None, &OptionalMetadata::None);
+        h.client.create_trade(
+            &seller,
+            &buyer,
+            &1_000_000u64,
+            &None,
+            &OptionalMetadata::None,
+        );
     });
 
     std::println!(
         "[bench] create_trade: {} instructions, {} mem bytes, {}ns wall",
-        r.instructions, r.mem_bytes, r.wall_ns
+        r.instructions,
+        r.mem_bytes,
+        r.wall_ns
     );
     assert!(
         r.instructions <= MAX_INSTRUCTIONS_CREATE_TRADE,
         "create_trade exceeded instruction limit: {} > {}",
-        r.instructions, MAX_INSTRUCTIONS_CREATE_TRADE
+        r.instructions,
+        MAX_INSTRUCTIONS_CREATE_TRADE
     );
 }
 
@@ -243,7 +266,11 @@ fn bench_full_happy_path_instructions() {
 
     let r = bench(&h.env, || {
         let id = h.client.create_trade(
-            &seller, &buyer, &1_000_000u64, &None, &OptionalMetadata::None,
+            &seller,
+            &buyer,
+            &1_000_000u64,
+            &None,
+            &OptionalMetadata::None,
         );
         h.client.fund_trade(&id);
         h.client.complete_trade(&id);
@@ -252,12 +279,15 @@ fn bench_full_happy_path_instructions() {
 
     std::println!(
         "[bench] full_happy_path: {} instructions, {} mem bytes, {}ns wall",
-        r.instructions, r.mem_bytes, r.wall_ns
+        r.instructions,
+        r.mem_bytes,
+        r.wall_ns
     );
     assert!(
         r.instructions <= MAX_INSTRUCTIONS_FULL_CYCLE,
         "full happy path exceeded instruction limit: {} > {}",
-        r.instructions, MAX_INSTRUCTIONS_FULL_CYCLE
+        r.instructions,
+        MAX_INSTRUCTIONS_FULL_CYCLE
     );
 }
 
@@ -270,21 +300,31 @@ fn bench_dispute_cycle_instructions() {
 
     let r = bench(&h.env, || {
         let id = h.client.create_trade(
-            &seller, &buyer, &1_000_000u64, &Some(h.arbitrator.clone()), &OptionalMetadata::None,
+            &seller,
+            &buyer,
+            &1_000_000u64,
+            &Some(h.arbitrator.clone()),
+            &OptionalMetadata::None,
         );
         h.client.fund_trade(&id);
         h.client.raise_dispute(&id);
-        h.client.resolve_dispute(&id, &stellar_escrow_contract::DisputeResolution::ReleaseToBuyer);
+        h.client.resolve_dispute(
+            &id,
+            &stellar_escrow_contract::DisputeResolution::ReleaseToBuyer,
+        );
     });
 
     std::println!(
         "[bench] dispute_cycle: {} instructions, {} mem bytes, {}ns wall",
-        r.instructions, r.mem_bytes, r.wall_ns
+        r.instructions,
+        r.mem_bytes,
+        r.wall_ns
     );
     assert!(
         r.instructions <= MAX_INSTRUCTIONS_DISPUTE_CYCLE,
         "dispute cycle exceeded instruction limit: {} > {}",
-        r.instructions, MAX_INSTRUCTIONS_DISPUTE_CYCLE
+        r.instructions,
+        MAX_INSTRUCTIONS_DISPUTE_CYCLE
     );
 }
 
@@ -301,7 +341,9 @@ fn bench_fee_withdrawal_instructions() {
 
     std::println!(
         "[bench] withdraw_fees: {} instructions, {} mem bytes, {}ns wall",
-        r.instructions, r.mem_bytes, r.wall_ns
+        r.instructions,
+        r.mem_bytes,
+        r.wall_ns
     );
 }
 
@@ -317,7 +359,13 @@ fn monitor_resource_usage_scales_linearly() {
     let seller1 = Address::generate(&h.env);
     let buyer1 = Address::generate(&h.env);
     let r1 = bench(&h.env, || {
-        h.client.create_trade(&seller1, &buyer1, &1_000_000u64, &None, &OptionalMetadata::None);
+        h.client.create_trade(
+            &seller1,
+            &buyer1,
+            &1_000_000u64,
+            &None,
+            &OptionalMetadata::None,
+        );
     });
 
     // Measure cost for 10 more trades (cumulative)
@@ -325,7 +373,8 @@ fn monitor_resource_usage_scales_linearly() {
         for _ in 0..10 {
             let s = Address::generate(&h.env);
             let b = Address::generate(&h.env);
-            h.client.create_trade(&s, &b, &1_000_000u64, &None, &OptionalMetadata::None);
+            h.client
+                .create_trade(&s, &b, &1_000_000u64, &None, &OptionalMetadata::None);
         }
     });
 
@@ -340,7 +389,8 @@ fn monitor_resource_usage_scales_linearly() {
     assert!(
         r10.instructions <= r1.instructions * 15,
         "resource usage grew super-linearly: {} vs {} * 15",
-        r10.instructions, r1.instructions
+        r10.instructions,
+        r1.instructions
     );
 }
 
@@ -351,12 +401,22 @@ fn monitor_memory_usage_create_trade() {
     let buyer = Address::generate(&h.env);
 
     let r = bench(&h.env, || {
-        h.client.create_trade(&seller, &buyer, &1_000_000u64, &None, &OptionalMetadata::None);
+        h.client.create_trade(
+            &seller,
+            &buyer,
+            &1_000_000u64,
+            &None,
+            &OptionalMetadata::None,
+        );
     });
 
     std::println!("[monitor] create_trade memory: {} bytes", r.mem_bytes);
     // Sanity: must use some memory but not an absurd amount (< 1 MB per op)
-    assert!(r.mem_bytes < 1_000_000, "memory usage unexpectedly high: {}", r.mem_bytes);
+    assert!(
+        r.mem_bytes < 1_000_000,
+        "memory usage unexpectedly high: {}",
+        r.mem_bytes
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -371,9 +431,9 @@ fn stress_max_amount_trade() {
     let max_amount = u64::MAX / 2; // avoid overflow in fee calc
     fund_account(&h, &buyer, max_amount as i128);
 
-    let id = h.client.create_trade(
-        &seller, &buyer, &max_amount, &None, &OptionalMetadata::None,
-    );
+    let id = h
+        .client
+        .create_trade(&seller, &buyer, &max_amount, &None, &OptionalMetadata::None);
     let trade = h.client.get_trade(&id);
     assert_eq!(trade.amount, max_amount);
 }
@@ -416,11 +476,15 @@ fn bench_batch_create_100_trades_total_instructions() {
 
     std::println!(
         "[bench] batch {} trades: {} total instructions, {} mem bytes, {}ns wall",
-        LOAD_TRADE_COUNT, r.instructions, r.mem_bytes, r.wall_ns
+        LOAD_TRADE_COUNT,
+        r.instructions,
+        r.mem_bytes,
+        r.wall_ns
     );
     assert!(
         r.instructions <= MAX_INSTRUCTIONS_LOAD_BATCH,
         "batch create exceeded instruction budget: {} > {}",
-        r.instructions, MAX_INSTRUCTIONS_LOAD_BATCH
+        r.instructions,
+        MAX_INSTRUCTIONS_LOAD_BATCH
     );
 }

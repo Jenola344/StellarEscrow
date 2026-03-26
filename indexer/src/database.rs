@@ -3,12 +3,48 @@ use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 use crate::error::AppError;
+use crate::fraud_service::FraudReport;
+use crate::integration_service::{DeliveryRecord, DeliveryStatus};
 use crate::models::{
     AuditBucket, AuditLog, AuditQuery, AuditStats, DiscoveryQuery, DiscoveryResult, Event,
-    EventQuery, NewAuditLog, SearchHistoryEntry, SearchSuggestion,
-    TradeSearchQuery, TradeSearchResult,
+    EventQuery, NewAuditLog, SearchHistoryEntry, SearchSuggestion, TradeSearchQuery,
+    TradeSearchResult,
 };
-use crate::fraud_service::FraudReport;
+
+// ---------------------------------------------------------------------------
+// Row helper for integration_deliveries
+// ---------------------------------------------------------------------------
+
+#[derive(sqlx::FromRow)]
+struct IntegrationDeliveryRow {
+    id: Uuid,
+    connector_id: String,
+    event_id: Uuid,
+    status: String,
+    status_code: Option<i32>,
+    error: Option<String>,
+    duration_ms: i64,
+    attempted_at: DateTime<Utc>,
+}
+
+impl From<IntegrationDeliveryRow> for DeliveryRecord {
+    fn from(r: IntegrationDeliveryRow) -> Self {
+        DeliveryRecord {
+            id: r.id,
+            connector_id: r.connector_id,
+            event_id: r.event_id,
+            status: if r.status == "success" {
+                DeliveryStatus::Success
+            } else {
+                DeliveryStatus::Failed
+            },
+            status_code: r.status_code.map(|c| c as u16),
+            error: r.error,
+            duration_ms: r.duration_ms as u64,
+            attempted_at: r.attempted_at,
+        }
+    }
+}
 
 pub struct Database {
     pool: PgPool,
@@ -42,44 +78,45 @@ impl Database {
     }
 
     pub async fn get_events(&self, query: &EventQuery) -> Result<Vec<Event>, AppError> {
-        let mut sql = String::from("SELECT id, event_type, contract_id, ledger, transaction_hash, timestamp, data, created_at FROM events WHERE 1=1");
-        
-        // Add conditions and collect owned String values
-        let mut params: Vec<String> = Vec::new();
-        
-        if let Some(ref event_type) = query.event_type {
-            sql.push_str(&format!(" AND event_type = ${}", params.len() + 1));
-            params.push(event_type.clone());
+        let mut sql = "SELECT id, event_type, contract_id, ledger, transaction_hash, timestamp, data, created_at FROM events WHERE 1=1".to_string();
+        let mut owned: Vec<String> = vec![];
+
+        if let Some(event_type) = &query.event_type {
+            sql.push_str(&format!(" AND event_type = ${}", owned.len() + 1));
+            owned.push(event_type.clone());
         }
-        
+
         if let Some(trade_id) = query.trade_id {
-            sql.push_str(&format!(" AND (data->>'trade_id')::BIGINT = ${}", params.len() + 1));
-            params.push(trade_id.to_string());
+            sql.push_str(&format!(" AND data->>'trade_id' = ${}", owned.len() + 1));
+            owned.push(trade_id.to_string());
         }
-        
+
         if let Some(from_ledger) = query.from_ledger {
-            sql.push_str(&format!(" AND ledger >= ${}", params.len() + 1));
-            params.push(from_ledger.to_string());
+            sql.push_str(&format!(" AND ledger >= ${}", owned.len() + 1));
+            owned.push(from_ledger.to_string());
         }
-        
+
         if let Some(to_ledger) = query.to_ledger {
-            sql.push_str(&format!(" AND ledger <= ${}", params.len() + 1));
-            params.push(to_ledger.to_string());
+            sql.push_str(&format!(" AND ledger <= ${}", owned.len() + 1));
+            owned.push(to_ledger.to_string());
         }
-        
+
+        sql.push_str(" ORDER BY ledger DESC, timestamp DESC");
+
         if let Some(limit) = query.limit {
             sql.push_str(&format!(" LIMIT {}", limit));
         }
-        
+
         if let Some(offset) = query.offset {
             sql.push_str(&format!(" OFFSET {}", offset));
         }
-        
-        let mut query_builder = sqlx::query_as::<_, Event>(&sql);
-        for param in params {
-            query_builder = query_builder.bind(param);
+
+        let mut query_builder = sqlx::query(&sql);
+
+        for s in &owned {
+            query_builder = query_builder.bind(s.as_str());
         }
-        
+
         let rows = query_builder.fetch_all(&self.pool).await?;
 
         let events = rows
@@ -158,12 +195,19 @@ impl Database {
         }
 
         let mut q = sqlx::query(&sql);
-        for b in &bindings { q = q.bind(b); }
+        for b in &bindings {
+            q = q.bind(b);
+        }
         let row = q.fetch_one(&self.pool).await?;
         Ok(row.get::<i64, _>(0))
     }
 
-    pub async fn get_events_in_range(&self, from_ledger: i64, to_ledger: i64, contract_id: &str) -> Result<Vec<Event>, AppError> {
+    pub async fn get_events_in_range(
+        &self,
+        from_ledger: i64,
+        to_ledger: i64,
+        contract_id: &str,
+    ) -> Result<Vec<Event>, AppError> {
         let rows = sqlx::query(
             r#"
             SELECT id, event_type, contract_id, ledger, transaction_hash, timestamp, data, created_at
@@ -212,9 +256,11 @@ impl Database {
 
     /// Event counts grouped by event_type — used for stats/dashboard.
     pub async fn get_event_type_counts(&self) -> Result<Vec<(String, i64)>, AppError> {
-        let rows = sqlx::query("SELECT event_type, COUNT(*) as cnt FROM events GROUP BY event_type ORDER BY cnt DESC")
-            .fetch_all(&self.pool)
-            .await?;
+        let rows = sqlx::query(
+            "SELECT event_type, COUNT(*) as cnt FROM events GROUP BY event_type ORDER BY cnt DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
 
         Ok(rows
             .into_iter()
@@ -224,13 +270,16 @@ impl Database {
 
     /// Latest indexed ledger and its timestamp across all contracts.
     pub async fn get_latest_ledger_global(&self) -> Result<Option<(i64, DateTime<Utc>)>, AppError> {
-        let row = sqlx::query(
-            "SELECT ledger, timestamp FROM events ORDER BY ledger DESC LIMIT 1",
-        )
-        .fetch_optional(&self.pool)
-        .await?;
+        let row = sqlx::query("SELECT ledger, timestamp FROM events ORDER BY ledger DESC LIMIT 1")
+            .fetch_optional(&self.pool)
+            .await?;
 
-        Ok(row.map(|r| (r.get::<i64, _>("ledger"), r.get::<DateTime<Utc>, _>("timestamp"))))
+        Ok(row.map(|r| {
+            (
+                r.get::<i64, _>("ledger"),
+                r.get::<DateTime<Utc>, _>("timestamp"),
+            )
+        }))
     }
 
     pub async fn record_search(&self, query_text: &str, search_type: &str) -> Result<(), AppError> {
@@ -298,19 +347,32 @@ impl Database {
         );
 
         let mut qb = sqlx::query_as::<_, SearchAnalyticsRow>(&sql);
-        if let Some(v) = query.from   { qb = qb.bind(v); }
-        if let Some(v) = query.to     { qb = qb.bind(v); }
-        if let Some(ref v) = query.search_type { qb = qb.bind(v); }
+        if let Some(v) = query.from {
+            qb = qb.bind(v);
+        }
+        if let Some(v) = query.to {
+            qb = qb.bind(v);
+        }
+        if let Some(ref v) = query.search_type {
+            qb = qb.bind(v);
+        }
 
         let rows = qb.fetch_all(&self.pool).await?;
         let total_queries: i64 = rows.iter().map(|r| r.query_count).sum();
 
         let top_terms = self.get_search_suggestions("", 10).await?;
 
-        Ok(SearchAnalyticsResponse { rows, top_terms, total_queries })
+        Ok(SearchAnalyticsResponse {
+            rows,
+            top_terms,
+            total_queries,
+        })
     }
 
-    pub async fn search_trades(&self, query: &TradeSearchQuery) -> Result<Vec<TradeSearchResult>, AppError> {
+    pub async fn search_trades(
+        &self,
+        query: &TradeSearchQuery,
+    ) -> Result<Vec<TradeSearchResult>, AppError> {
         let limit = query.limit.unwrap_or(25).clamp(1, 100);
         let offset = query.offset.unwrap_or(0).max(0);
         let q = query.q.clone().unwrap_or_default();
@@ -371,7 +433,10 @@ impl Database {
         Ok(rows)
     }
 
-    pub async fn discover_entities(&self, query: &DiscoveryQuery) -> Result<Vec<DiscoveryResult>, AppError> {
+    pub async fn discover_entities(
+        &self,
+        query: &DiscoveryQuery,
+    ) -> Result<Vec<DiscoveryResult>, AppError> {
         let limit = query.limit.unwrap_or(25).clamp(1, 100);
         let q = query.q.clone().unwrap_or_default();
         let q_pattern = format!("%{}%", q);
@@ -440,7 +505,10 @@ impl Database {
         Ok(rows)
     }
 
-    pub async fn get_search_history(&self, limit: i64) -> Result<Vec<SearchHistoryEntry>, AppError> {
+    pub async fn get_search_history(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<SearchHistoryEntry>, AppError> {
         let rows = sqlx::query_as::<_, SearchHistoryEntry>(
             r#"
             SELECT id, query_text, search_type, created_at
@@ -503,13 +571,13 @@ impl Database {
             };
         }
 
-        push_cond!("actor",         q.actor);
-        push_cond!("category",      q.category);
-        push_cond!("action",        q.action);
+        push_cond!("actor", q.actor);
+        push_cond!("category", q.category);
+        push_cond!("action", q.action);
         push_cond!("resource_type", q.resource_type);
-        push_cond!("resource_id",   q.resource_id);
-        push_cond!("outcome",       q.outcome);
-        push_cond!("severity",      q.severity);
+        push_cond!("resource_id", q.resource_id);
+        push_cond!("outcome", q.outcome);
+        push_cond!("severity", q.severity);
 
         if q.from.is_some() {
             conditions.push(format!("created_at >= ${}", idx));
@@ -528,15 +596,33 @@ impl Database {
         );
 
         let mut qb = sqlx::query_as::<_, AuditLog>(&sql);
-        if let Some(v) = &q.actor         { qb = qb.bind(v); }
-        if let Some(v) = &q.category      { qb = qb.bind(v); }
-        if let Some(v) = &q.action        { qb = qb.bind(v); }
-        if let Some(v) = &q.resource_type { qb = qb.bind(v); }
-        if let Some(v) = &q.resource_id   { qb = qb.bind(v); }
-        if let Some(v) = &q.outcome       { qb = qb.bind(v); }
-        if let Some(v) = &q.severity      { qb = qb.bind(v); }
-        if let Some(v) = q.from           { qb = qb.bind(v); }
-        if let Some(v) = q.to             { qb = qb.bind(v); }
+        if let Some(v) = &q.actor {
+            qb = qb.bind(v);
+        }
+        if let Some(v) = &q.category {
+            qb = qb.bind(v);
+        }
+        if let Some(v) = &q.action {
+            qb = qb.bind(v);
+        }
+        if let Some(v) = &q.resource_type {
+            qb = qb.bind(v);
+        }
+        if let Some(v) = &q.resource_id {
+            qb = qb.bind(v);
+        }
+        if let Some(v) = &q.outcome {
+            qb = qb.bind(v);
+        }
+        if let Some(v) = &q.severity {
+            qb = qb.bind(v);
+        }
+        if let Some(v) = q.from {
+            qb = qb.bind(v);
+        }
+        if let Some(v) = q.to {
+            qb = qb.bind(v);
+        }
 
         Ok(qb.fetch_all(&self.pool).await?)
     }
@@ -555,13 +641,13 @@ impl Database {
             };
         }
 
-        push_cond!("actor",         q.actor);
-        push_cond!("category",      q.category);
-        push_cond!("action",        q.action);
+        push_cond!("actor", q.actor);
+        push_cond!("category", q.category);
+        push_cond!("action", q.action);
         push_cond!("resource_type", q.resource_type);
-        push_cond!("resource_id",   q.resource_id);
-        push_cond!("outcome",       q.outcome);
-        push_cond!("severity",      q.severity);
+        push_cond!("resource_id", q.resource_id);
+        push_cond!("outcome", q.outcome);
+        push_cond!("severity", q.severity);
 
         if q.from.is_some() {
             conditions.push(format!("created_at >= ${}", idx));
@@ -578,15 +664,33 @@ impl Database {
         );
 
         let mut qb = sqlx::query(&sql);
-        if let Some(v) = &q.actor         { qb = qb.bind(v); }
-        if let Some(v) = &q.category      { qb = qb.bind(v); }
-        if let Some(v) = &q.action        { qb = qb.bind(v); }
-        if let Some(v) = &q.resource_type { qb = qb.bind(v); }
-        if let Some(v) = &q.resource_id   { qb = qb.bind(v); }
-        if let Some(v) = &q.outcome       { qb = qb.bind(v); }
-        if let Some(v) = &q.severity      { qb = qb.bind(v); }
-        if let Some(v) = q.from           { qb = qb.bind(v); }
-        if let Some(v) = q.to             { qb = qb.bind(v); }
+        if let Some(v) = &q.actor {
+            qb = qb.bind(v);
+        }
+        if let Some(v) = &q.category {
+            qb = qb.bind(v);
+        }
+        if let Some(v) = &q.action {
+            qb = qb.bind(v);
+        }
+        if let Some(v) = &q.resource_type {
+            qb = qb.bind(v);
+        }
+        if let Some(v) = &q.resource_id {
+            qb = qb.bind(v);
+        }
+        if let Some(v) = &q.outcome {
+            qb = qb.bind(v);
+        }
+        if let Some(v) = &q.severity {
+            qb = qb.bind(v);
+        }
+        if let Some(v) = q.from {
+            qb = qb.bind(v);
+        }
+        if let Some(v) = q.to {
+            qb = qb.bind(v);
+        }
 
         let row = qb.fetch_one(&self.pool).await?;
         Ok(row.get::<i64, _>(0))
@@ -628,7 +732,14 @@ impl Database {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(AuditStats { total, by_category, by_outcome, by_severity, top_actors, top_actions })
+        Ok(AuditStats {
+            total,
+            by_category,
+            by_outcome,
+            by_severity,
+            top_actors,
+            top_actions,
+        })
     }
 
     /// Delete audit logs older than `days` days. Returns the number of rows deleted.
@@ -643,8 +754,13 @@ impl Database {
     }
 
     pub async fn insert_fraud_alert(&self, report: &FraudReport) -> Result<(), AppError> {
-        let rules_json = serde_json::to_value(&report.rules_triggered).unwrap_or(serde_json::Value::Null);
-        let status = if report.risk_score >= 80 { "pending" } else { "approved" };
+        let rules_json =
+            serde_json::to_value(&report.rules_triggered).unwrap_or(serde_json::Value::Null);
+        let status = if report.risk_score >= 80 {
+            "pending"
+        } else {
+            "approved"
+        };
 
         let mut tx = self.pool.begin().await?;
 
@@ -652,7 +768,7 @@ impl Database {
             r#"
             INSERT INTO fraud_alerts (trade_id, risk_score, rules_triggered, ml_score)
             VALUES ($1, $2, $3, $4)
-            "#
+            "#,
         )
         .bind(report.trade_id as i64)
         .bind(report.risk_score)
@@ -666,7 +782,7 @@ impl Database {
             INSERT INTO fraud_reviews (trade_id, status)
             VALUES ($1, $2)
             ON CONFLICT (trade_id) DO NOTHING
-            "#
+            "#,
         )
         .bind(report.trade_id as i64)
         .bind(status)
@@ -686,7 +802,7 @@ impl Database {
             LEFT JOIN fraud_reviews r ON a.trade_id = r.trade_id
             ORDER BY a.risk_score DESC, a.created_at DESC
             LIMIT 50
-            "#
+            "#,
         )
         .fetch_all(&self.pool)
         .await?;
@@ -726,7 +842,7 @@ impl Database {
                 reviewer = EXCLUDED.reviewer,
                 review_notes = EXCLUDED.review_notes,
                 updated_at = NOW()
-            "#
+            "#,
         )
         .bind(trade_id as i64)
         .bind(status)
@@ -875,5 +991,113 @@ impl Database {
         .fetch_all(&self.pool)
         .await?;
         Ok(rows)
+    }
+
+    // -----------------------------------------------------------------------
+    // Performance monitoring
+    // -----------------------------------------------------------------------
+
+    pub async fn insert_perf_sample(
+        &self,
+        route: &str,
+        method: &str,
+        status_code: u16,
+        duration_ms: u64,
+        is_error: bool,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            INSERT INTO performance_metrics (route, method, status_code, duration_ms, is_error)
+            VALUES ($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(route)
+        .bind(method)
+        .bind(status_code as i16)
+        .bind(duration_ms as i64)
+        .bind(is_error)
+    // Integration service
+    // -----------------------------------------------------------------------
+
+    pub async fn insert_integration_delivery(
+        &self,
+        record: &crate::integration_service::DeliveryRecord,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            INSERT INTO integration_deliveries
+                (id, connector_id, event_id, status, status_code, error, duration_ms, attempted_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            "#,
+        )
+        .bind(record.id)
+        .bind(&record.connector_id)
+        .bind(record.event_id)
+        .bind(format!("{:?}", record.status).to_lowercase())
+        .bind(record.status_code.map(|c| c as i32))
+        .bind(&record.error)
+        .bind(record.duration_ms as i64)
+        .bind(record.attempted_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn insert_perf_alert(
+        &self,
+        rule_name: &str,
+        severity: &str,
+        message: &str,
+        threshold: f64,
+        observed: f64,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            INSERT INTO performance_alerts (rule_name, severity, message, threshold, observed)
+            VALUES ($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(rule_name)
+        .bind(severity)
+        .bind(message)
+        .bind(threshold)
+        .bind(observed)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    pub async fn get_integration_deliveries(
+        &self,
+        connector_id: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<crate::integration_service::DeliveryRecord>, sqlx::Error> {
+        let rows = if let Some(cid) = connector_id {
+            sqlx::query_as::<_, IntegrationDeliveryRow>(
+                r#"
+                SELECT id, connector_id, event_id, status, status_code, error, duration_ms, attempted_at
+                FROM integration_deliveries
+                WHERE connector_id = $1
+                ORDER BY attempted_at DESC
+                LIMIT $2
+                "#,
+            )
+            .bind(cid)
+            .bind(limit.clamp(1, 200))
+            .fetch_all(&self.pool)
+            .await?
+        } else {
+            sqlx::query_as::<_, IntegrationDeliveryRow>(
+                r#"
+                SELECT id, connector_id, event_id, status, status_code, error, duration_ms, attempted_at
+                FROM integration_deliveries
+                ORDER BY attempted_at DESC
+                LIMIT $1
+                "#,
+            )
+            .bind(limit.clamp(1, 200))
+            .fetch_all(&self.pool)
+            .await?
+        };
+
+        Ok(rows.into_iter().map(|r| r.into()).collect())
     }
 }

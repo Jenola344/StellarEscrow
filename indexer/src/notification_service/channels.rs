@@ -35,17 +35,17 @@ pub async fn send_email(
         info!("Email sent to {}", to);
         Ok(())
     } else {
-        let msg = format!("Email API error {}: {}", res.status(), res.text().await.unwrap_or_default());
+        let msg = format!(
+            "Email API error {}: {}",
+            res.status(),
+            res.text().await.unwrap_or_default()
+        );
         error!("{}", msg);
         Err(msg)
     }
 }
 
-pub async fn send_sms(
-    cfg: &NotificationConfig,
-    to: &str,
-    body: &str,
-) -> Result<(), String> {
+pub async fn send_sms(cfg: &NotificationConfig, to: &str, body: &str) -> Result<(), String> {
     let client = Client::new();
     // Twilio-compatible POST /2010-04-01/Accounts/{sid}/Messages.json
     let url = format!(
@@ -65,7 +65,11 @@ pub async fn send_sms(
         info!("SMS sent to {}", to);
         Ok(())
     } else {
-        let msg = format!("SMS API error {}: {}", res.status(), res.text().await.unwrap_or_default());
+        let msg = format!(
+            "SMS API error {}: {}",
+            res.status(),
+            res.text().await.unwrap_or_default()
+        );
         error!("{}", msg);
         Err(msg)
     }
@@ -87,7 +91,10 @@ pub async fn send_push(
     });
 
     let res = client
-        .post(format!("{}/v1/projects/{}/messages:send", cfg.push_api_url, cfg.push_project_id))
+        .post(format!(
+            "{}/v1/projects/{}/messages:send",
+            cfg.push_api_url, cfg.push_project_id
+        ))
         .bearer_auth(&cfg.push_server_key)
         .json(&payload)
         .send()
@@ -98,7 +105,11 @@ pub async fn send_push(
         info!("Push sent to token {}", &token[..8]);
         Ok(())
     } else {
-        let msg = format!("Push API error {}: {}", res.status(), res.text().await.unwrap_or_default());
+        let msg = format!(
+            "Push API error {}: {}",
+            res.status(),
+            res.text().await.unwrap_or_default()
+        );
         error!("{}", msg);
         Err(msg)
     }

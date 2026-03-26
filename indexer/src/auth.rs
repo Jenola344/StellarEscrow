@@ -1,12 +1,23 @@
+use crate::config::AuthConfig;
 use axum::body::Body;
 use axum::extract::{FromRef, State};
 use axum::http::{header, Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use crate::config::AuthConfig;
 use std::sync::Arc;
 
-const PUBLIC_PATHS: &[&str] = &["/", "/health", "/health/live", "/health/ready", "/health/metrics", "/health/alerts", "/status", "/help", "/ws", "/api/v1/docs"];
+const PUBLIC_PATHS: &[&str] = &[
+    "/",
+    "/health",
+    "/health/live",
+    "/health/ready",
+    "/health/metrics",
+    "/health/alerts",
+    "/status",
+    "/help",
+    "/ws",
+    "/api/v1/docs",
+];
 
 fn normalize_api_key(value: &str) -> Option<&str> {
     if let Some(stripped) = value.strip_prefix("Bearer ") {
@@ -18,12 +29,15 @@ fn normalize_api_key(value: &str) -> Option<&str> {
 
 pub async fn auth_middleware(
     State(auth_config): State<Arc<AuthConfig>>,
-    mut req: Request<Body>,
+    req: Request<Body>,
     next: Next,
 ) -> Response {
     let path = req.uri().path();
 
-    if PUBLIC_PATHS.iter().any(|p| path == *p || path.starts_with(&format!("{}/", p))) {
+    if PUBLIC_PATHS
+        .iter()
+        .any(|p| path == *p || path.starts_with(&format!("{}/", p)))
+    {
         return next.run(req).await;
     }
 
@@ -38,7 +52,11 @@ pub async fn auth_middleware(
                 .and_then(|hv| hv.to_str().ok())
         });
 
-    let bad_key_response = (StatusCode::UNAUTHORIZED, "Unauthorized: missing or invalid API key").into_response();
+    let bad_key_response = (
+        StatusCode::UNAUTHORIZED,
+        "Unauthorized: missing or invalid API key",
+    )
+        .into_response();
 
     let key = match api_key {
         Some(k) if !k.is_empty() => k,
@@ -55,7 +73,9 @@ pub async fn auth_middleware(
         }
     }
 
-    if auth_config.api_keys.iter().any(|ak| ak == key) || auth_config.admin_keys.iter().any(|ak| ak == key) {
+    if auth_config.api_keys.iter().any(|ak| ak == key)
+        || auth_config.admin_keys.iter().any(|ak| ak == key)
+    {
         next.run(req).await
     } else {
         bad_key_response

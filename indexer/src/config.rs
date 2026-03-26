@@ -21,6 +21,7 @@ pub struct Config {
     #[serde(default)]
     pub cache: CacheConfig,
     pub gateway: GatewayConfig,
+    pub integration: IntegrationConfig,
 }
 
 /// Metadata section — version tracking for the config itself.
@@ -34,8 +35,12 @@ pub struct MetaConfig {
     pub environment: String,
 }
 
-fn default_config_version() -> String { "1.0.0".to_string() }
-fn default_schema_version() -> u32 { 1 }
+fn default_config_version() -> String {
+    "1.0.0".to_string()
+}
+fn default_schema_version() -> u32 {
+    1
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
@@ -44,7 +49,9 @@ pub struct ServerConfig {
     pub host: String,
 }
 
-fn default_host() -> String { "0.0.0.0".to_string() }
+fn default_host() -> String {
+    "0.0.0.0".to_string()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseConfig {
@@ -57,8 +64,12 @@ pub struct DatabaseConfig {
     pub min_connections: u32,
 }
 
-fn default_pool_size() -> u32 { 10 }
-fn default_min_connections() -> u32 { 2 }
+fn default_pool_size() -> u32 {
+    10
+}
+fn default_min_connections() -> u32 {
+    2
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CacheConfig {
@@ -73,16 +84,12 @@ pub struct CacheConfig {
     pub events_ttl_secs: u64,
 }
 
-fn default_cache_ttl() -> u64 { 30 }
-fn default_events_ttl() -> u64 { 10 }
-    #[serde(default = "default_max_connections")]
-    pub max_connections: u32,
-    #[serde(default = "default_connect_timeout")]
-    pub connect_timeout_seconds: u64,
+fn default_cache_ttl() -> u64 {
+    30
 }
-
-fn default_max_connections() -> u32 { 10 }
-fn default_connect_timeout() -> u64 { 30 }
+fn default_events_ttl() -> u64 {
+    10
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StellarConfig {
@@ -105,7 +112,7 @@ pub struct RateLimitConfig {
     pub blacklist: Vec<IpAddr>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AuthConfig {
     #[serde(default)]
     pub api_keys: Vec<String>,
@@ -120,7 +127,9 @@ pub struct StorageConfig {
     pub max_file_size_mb: u64,
 }
 
-fn default_max_file_size() -> u64 { 10 }
+fn default_max_file_size() -> u64 {
+    10
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NotificationConfig {
@@ -155,7 +164,11 @@ pub struct ConfigValidationError(pub Vec<String>);
 
 impl std::fmt::Display for ConfigValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Config validation failed:\n  - {}", self.0.join("\n  - "))
+        write!(
+            f,
+            "Config validation failed:\n  - {}",
+            self.0.join("\n  - ")
+        )
     }
 }
 
@@ -179,6 +192,41 @@ impl Default for GatewayConfig {
             service_instances: vec![],
         }
     }
+}
+
+// Integration config
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ConnectorKind {
+    Webhook,
+    Http,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConnectorConfig {
+    pub id: String,
+    pub name: String,
+    pub kind: ConnectorKind,
+    pub url: String,
+    #[serde(default)]
+    pub auth_token: Option<String>,
+    /// Event types to forward; empty means all events.
+    #[serde(default)]
+    pub event_filter: Vec<String>,
+    #[serde(default = "default_connector_timeout")]
+    pub timeout_secs: u64,
+}
+
+fn default_connector_timeout() -> u64 {
+    10
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct IntegrationConfig {
+    #[serde(default)]
+    pub connectors: Vec<ConnectorConfig>,
 }
 
 impl Config {
@@ -214,27 +262,39 @@ impl Config {
 
             match (section.as_str(), field.as_str()) {
                 ("server", "port") => {
-                    if let Ok(v) = val.parse() { self.server.port = v; }
+                    if let Ok(v) = val.parse() {
+                        self.server.port = v;
+                    }
                 }
                 ("server", "host") => self.server.host = val,
                 ("database", "url") => self.database.url = val,
                 ("database", "max_connections") => {
-                    if let Ok(v) = val.parse() { self.database.max_connections = v; }
+                    if let Ok(v) = val.parse() {
+                        self.database.max_connections = v;
+                    }
                 }
                 ("stellar", "network") => self.stellar.network = val,
                 ("stellar", "contract_id") => self.stellar.contract_id = val,
                 ("stellar", "horizon_url") => self.stellar.horizon_url = val,
                 ("stellar", "poll_interval_seconds") => {
-                    if let Ok(v) = val.parse() { self.stellar.poll_interval_seconds = v; }
+                    if let Ok(v) = val.parse() {
+                        self.stellar.poll_interval_seconds = v;
+                    }
                 }
                 ("rate_limit", "default_rpm") => {
-                    if let Ok(v) = val.parse() { self.rate_limit.default_rpm = v; }
+                    if let Ok(v) = val.parse() {
+                        self.rate_limit.default_rpm = v;
+                    }
                 }
                 ("rate_limit", "elevated_rpm") => {
-                    if let Ok(v) = val.parse() { self.rate_limit.elevated_rpm = v; }
+                    if let Ok(v) = val.parse() {
+                        self.rate_limit.elevated_rpm = v;
+                    }
                 }
                 ("rate_limit", "admin_rpm") => {
-                    if let Ok(v) = val.parse() { self.rate_limit.admin_rpm = v; }
+                    if let Ok(v) = val.parse() {
+                        self.rate_limit.admin_rpm = v;
+                    }
                 }
                 ("storage", "base_dir") => self.storage.base_dir = val,
                 ("notification", "email_api_key") => self.notification.email_api_key = val,
@@ -273,7 +333,9 @@ impl Config {
         // Production-specific checks
         if self.meta.environment == "production" {
             if self.stellar.network != "mainnet" {
-                errors.push("production environment requires stellar.network = 'mainnet'".to_string());
+                errors.push(
+                    "production environment requires stellar.network = 'mainnet'".to_string(),
+                );
             }
             if self.stellar.contract_id.is_empty() {
                 errors.push("stellar.contract_id must be set in production".to_string());
@@ -337,6 +399,8 @@ impl Default for Config {
                 push_server_key: String::new(),
             },
             gateway: GatewayConfig::default(),
+
+            integration: IntegrationConfig::default(),
         }
     }
 }

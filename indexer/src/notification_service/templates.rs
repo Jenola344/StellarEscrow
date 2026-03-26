@@ -15,25 +15,25 @@ pub enum TemplateId {
 impl TemplateId {
     pub fn as_str(&self) -> &'static str {
         match self {
-            TemplateId::TradeCreated    => "trade_created",
-            TemplateId::TradeFunded     => "trade_funded",
-            TemplateId::TradeCompleted  => "trade_completed",
-            TemplateId::TradeConfirmed  => "trade_confirmed",
-            TemplateId::DisputeRaised   => "dispute_raised",
+            TemplateId::TradeCreated => "trade_created",
+            TemplateId::TradeFunded => "trade_funded",
+            TemplateId::TradeCompleted => "trade_completed",
+            TemplateId::TradeConfirmed => "trade_confirmed",
+            TemplateId::DisputeRaised => "dispute_raised",
             TemplateId::DisputeResolved => "dispute_resolved",
-            TemplateId::TradeCancelled  => "trade_cancelled",
+            TemplateId::TradeCancelled => "trade_cancelled",
         }
     }
 
     pub fn from_event_type(event_type: &str) -> Option<Self> {
         match event_type {
-            "trade_created"    => Some(TemplateId::TradeCreated),
-            "trade_funded"     => Some(TemplateId::TradeFunded),
-            "trade_completed"  => Some(TemplateId::TradeCompleted),
-            "trade_confirmed"  => Some(TemplateId::TradeConfirmed),
-            "dispute_raised"   => Some(TemplateId::DisputeRaised),
+            "trade_created" => Some(TemplateId::TradeCreated),
+            "trade_funded" => Some(TemplateId::TradeFunded),
+            "trade_completed" => Some(TemplateId::TradeCompleted),
+            "trade_confirmed" => Some(TemplateId::TradeConfirmed),
+            "dispute_raised" => Some(TemplateId::DisputeRaised),
             "dispute_resolved" => Some(TemplateId::DisputeResolved),
-            "trade_cancelled"  => Some(TemplateId::TradeCancelled),
+            "trade_cancelled" => Some(TemplateId::TradeCancelled),
             _ => None,
         }
     }

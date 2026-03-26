@@ -1,5 +1,5 @@
 //! API Gateway Tests
-//! 
+//!
 //! Tests cover:
 //! - Request routing
 //! - Load balancing (round-robin)
@@ -128,13 +128,15 @@ async fn test_gateway_public_paths_no_auth() {
 
     // Public paths should work without auth
     for path in &["/health", "/health/live", "/help"] {
-        let request = Request::builder()
-            .uri(*path)
-            .body(Body::empty())
-            .unwrap();
+        let request = Request::builder().uri(*path).body(Body::empty()).unwrap();
 
         let response = app.oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK, "Path {} should be public", path);
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Path {} should be public",
+            path
+        );
     }
 }
 
@@ -146,12 +148,13 @@ async fn test_gateway_admin_route_requires_admin_key() {
         "OK"
     }
 
-    let app = Router::new()
-        .route("/admin/users", get(handler))
-        .layer(middleware::from_fn_with_state(
-            gateway_state.clone(),
-            gateway_middleware,
-        ));
+    let app =
+        Router::new()
+            .route("/admin/users", get(handler))
+            .layer(middleware::from_fn_with_state(
+                gateway_state.clone(),
+                gateway_middleware,
+            ));
 
     // Regular API key should fail on admin routes
     let response = app
@@ -237,7 +240,7 @@ async fn test_load_balancing_empty_instances() {
 #[test]
 fn test_standard_response_success() {
     let response = StandardResponse::success("test data");
-    
+
     assert!(response.success);
     assert_eq!(response.data, Some("test data"));
     assert!(response.error.is_none());
@@ -247,7 +250,7 @@ fn test_standard_response_success() {
 #[test]
 fn test_standard_response_error() {
     let response: StandardResponse<String> = StandardResponse::error("something went wrong");
-    
+
     assert!(!response.success);
     assert!(response.data.is_none());
     assert_eq!(response.error, Some("something went wrong".to_string()));
@@ -295,13 +298,17 @@ async fn test_gateway_statistics_tracking() {
 
     // Make several requests to different endpoints
     for _ in 0..3 {
-        let _ = app.oneshot(request_with_key("/events", "test-key-123")).await;
-        let _ = app.oneshot(request_with_key("/search", "test-key-123")).await;
+        let _ = app
+            .oneshot(request_with_key("/events", "test-key-123"))
+            .await;
+        let _ = app
+            .oneshot(request_with_key("/search", "test-key-123"))
+            .await;
     }
 
     // Check statistics were recorded
     let stats = get_gateway_stats(&gateway_state);
-    
+
     assert!(stats.contains_key("routes"));
     assert!(stats.contains_key("active_instances"));
     assert!(stats.contains_key("load_balancing"));
@@ -330,10 +337,7 @@ async fn test_gateway_headers_added() {
     // Check gateway version header is added
     let headers = response.headers();
     assert!(headers.get("X-Gateway-Version").is_some());
-    assert_eq!(
-        headers.get("X-Gateway-Version").unwrap(),
-        "1.0.0"
-    );
+    assert_eq!(headers.get("X-Gateway-Version").unwrap(), "1.0.0");
 }
 
 #[tokio::test]
@@ -352,10 +356,7 @@ async fn test_missing_api_key() {
         ));
 
     // Request without any API key should fail
-    let request = Request::builder()
-        .uri("/test")
-        .body(Body::empty())
-        .unwrap();
+    let request = Request::builder().uri("/test").body(Body::empty()).unwrap();
 
     let response = app.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);

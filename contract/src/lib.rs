@@ -13,10 +13,7 @@ mod subscription;
 mod templates;
 mod tiers;
 mod types;
-
-use soroban_sdk::{contract, contractimpl, token, Address, Env};
-#[cfg(test)]
-mod test;
+mod upgrade;
 
 use soroban_sdk::{contract, contractimpl, token::TokenClient, Address, BytesN, Env};
 
@@ -30,6 +27,7 @@ pub use types::{
 };
 pub use queries::{PageParams, SortDirection, TradeFilter, TradeSortField, TradeStats};
 pub use oracle::{OracleEntry, PriceData, PriceValidation};
+pub use upgrade::{RollbackSnapshot, UpgradeProposal};
 
 use storage::{
     get_accumulated_fees, get_admin, get_fee_bps, get_trade, get_usdc_token,
@@ -51,18 +49,12 @@ use storage::{
 };
 
 use storage::{
-    get_admin, get_currency_fees, get_fee_bps, get_trade, get_usdc_token, has_arbitrator,
-    has_initialized, increment_trade_counter, is_initialized, is_paused, remove_arbitrator,
-    save_arbitrator, save_trade, set_accumulated_fees, set_admin, set_currency_fees, set_fee_bps,
-    set_initialized, set_paused, set_trade_counter, set_usdc_token,
-    add_accumulated_fees, get_accumulated_fees, get_admin, get_fee_bps, get_trade,
-    get_usdc_token, has_arbitrator, increment_trade_counter, is_initialized,
-    is_paused, remove_arbitrator, save_arbitrator, save_trade, set_accumulated_fees, set_admin,
-    set_fee_bps, set_initialized, set_paused, set_trade_counter, set_usdc_token,
-    get_version, set_version,
-    get_bridge_oracle, set_bridge_oracle, save_cross_chain_info, get_cross_chain_info,
-    has_insurance_provider, save_insurance_provider, remove_insurance_provider,
-    save_insurance_policy, get_insurance_policy,
+    add_accumulated_fees, get_accumulated_fees, get_admin, get_currency_fees, get_fee_bps,
+    get_trade, get_trade_counter, get_usdc_token, has_arbitrator, has_initialized, has_rated,
+    increment_trade_counter, is_initialized, is_paused, mark_rated, remove_arbitrator,
+    save_arbitrator, save_arbitrator_reputation, save_trade, set_accumulated_fees, set_admin,
+    set_currency_fees, set_fee_bps, set_initialized, set_paused, set_trade_counter,
+    set_usdc_token, CrossChainInfo, InsurancePolicy,
 };
 
 fn token_client<'a>(env: &'a Env, token: &Address) -> token::Client<'a> {
@@ -368,13 +360,88 @@ impl StellarEscrowContract {
             .ok_or(ContractError::Overflow)?;
 
         let fee = calc_fee(&env, &seller, amount)?;
+        let arbitrator_config = arbitrator.map(ArbitrationConfig::Single);
         let trade = Trade {
             id: trade_id,
             seller: seller.clone(),
             buyer: buyer.clone(),
             amount,
             fee,
-            arbitrator,
+            arbitrator: arbitrator_config,
+            status: TradeStatus::Created,
+            expiry_time,
+            currency: token,
+            metadata,
+        };
+        save_trade(&env, trade_id, &trade);
+        events::emit_trade_created(&env, trade_id, seller.clone(), buyer.clone(), amount);
+        events::emit_compliance_passed(&env, trade_id, seller, buyer, amount);
+        Ok(trade_id)
+    }
+
+    /// Create a new trade with multi-signature arbitration for high-value trades.
+    /// Requires that all specified arbitrators are registered.
+    pub fn create_multisig_trade(
+        env: Env,
+        seller: Address,
+        buyer: Address,
+        amount: u64,
+        multisig_config: MultiSigConfig,
+        expiry_time: Option<u64>,
+        currency: Option<Address>,
+        metadata: OptionalMetadata,
+    ) -> Result<u64, ContractError> {
+        require_initialized(&env)?;
+        require_not_paused(&env)?;
+        if amount == 0 {
+            return Err(ContractError::InvalidAmount);
+        }
+
+        // Validate multi-sig configuration
+        if multisig_config.arbitrators.len() < multisig_config.threshold as u32 {
+            return Err(ContractError::InvalidMultiSigConfig);
+        }
+        if multisig_config.threshold == 0 {
+            return Err(ContractError::InvalidMultiSigConfig);
+        }
+
+        // Validate all arbitrators are registered
+        for i in 0..multisig_config.arbitrators.len() {
+            let arb = multisig_config.arbitrators.get(i).unwrap();
+            if !has_arbitrator(&env, &arb) {
+                return Err(ContractError::ArbitratorNotRegistered);
+            }
+        }
+
+        // expiry_time must be in the future (Stellar ledger time is UTC seconds)
+        if let Some(expiry) = expiry_time {
+            let now = env.ledger().timestamp();
+            if expiry <= now {
+                return Err(ContractError::InvalidExpiry);
+            }
+        }
+
+        seller.require_auth();
+        validate_user_compliance(&env, &seller, amount)?;
+        validate_user_compliance(&env, &buyer, amount)?;
+
+        if let OptionalMetadata::Some(ref meta) = metadata {
+            validate_metadata(meta)?;
+        }
+
+        // Default to USDC when no currency specified (backward compat)
+        let token = currency.unwrap_or(get_usdc_token(&env)?);
+        validate_metadata(&metadata)?;
+
+        let trade_id = increment_trade_counter(&env)?;
+        let fee = calc_fee(&env, &seller, amount)?;
+        let trade = Trade {
+            id: trade_id,
+            seller: seller.clone(),
+            buyer: buyer.clone(),
+            amount,
+            fee,
+            arbitrator: Some(ArbitrationConfig::MultiSig(multisig_config)),
             status: TradeStatus::Created,
             expiry_time,
             currency: token,
@@ -479,13 +546,24 @@ impl StellarEscrowContract {
         }
         caller.require_auth();
         trade.status = TradeStatus::Disputed;
-        save_trade(&env, trade_id, &trade);
-        // Increment total_disputes on the arbitrator's reputation record
-        if let Some(ref arb) = trade.arbitrator {
+
+        // Initialize voting start time for multi-sig disputes
+        if let Some(ArbitrationConfig::MultiSig(ref mut config)) = trade.arbitrator {
+            config.voting_started_at = Some(env.ledger().timestamp());
+            // Increment total disputes for each participating arbitrator
+            for i in 0..config.arbitrators.len() {
+                let arb = config.arbitrators.get(i).unwrap();
+                let mut rep = storage::get_arbitrator_reputation(&env, arb);
+                rep.total_disputes = rep.total_disputes.saturating_add(1);
+                save_arbitrator_reputation(&env, arb, &rep);
+            }
+        } else if let Some(ArbitrationConfig::Single(ref arb)) = trade.arbitrator {
             let mut rep = storage::get_arbitrator_reputation(&env, arb);
             rep.total_disputes = rep.total_disputes.saturating_add(1);
             save_arbitrator_reputation(&env, arb, &rep);
         }
+
+        save_trade(&env, trade_id, &trade);
         events::emit_dispute_raised(&env, trade_id, caller);
         analytics::on_trade_disputed(&env);
         Ok(())
@@ -502,8 +580,37 @@ impl StellarEscrowContract {
         if trade.status != TradeStatus::Disputed {
             return Err(ContractError::InvalidStatus);
         }
-        let arbitrator = trade.arbitrator.ok_or(ContractError::ArbitratorNotRegistered)?;
-        arbitrator.require_auth();
+
+        match &trade.arbitrator {
+            Some(ArbitrationConfig::Single(arbitrator)) => {
+                // Single arbitrator resolution - require auth
+                arbitrator.require_auth();
+                StellarEscrowContract::execute_dispute_resolution(env, trade_id, resolution, trade)?;
+            }
+            Some(ArbitrationConfig::MultiSig(config)) => {
+                // Multi-sig resolution - check consensus
+                let summary = StellarEscrowContract::get_voting_summary(env.clone(), trade_id)?;
+                if !summary.has_consensus {
+                    return Err(ContractError::NoConsensus);
+                }
+                let consensus_resolution = summary.consensus_resolution.ok_or(ContractError::NoConsensus)?;
+                StellarEscrowContract::execute_dispute_resolution(env, trade_id, consensus_resolution, trade)?;
+            }
+            None => {
+                return Err(ContractError::ArbitratorNotRegistered);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Internal function to execute dispute resolution logic
+    fn execute_dispute_resolution(
+        env: Env,
+        trade_id: u64,
+        resolution: DisputeResolution,
+        trade: Trade,
+    ) -> Result<(), ContractError> {
         let token = get_usdc_token(&env)?;
         let token_client = token::Client::new(&env, &token);
 
@@ -540,32 +647,39 @@ impl StellarEscrowContract {
             }
         }
 
-        let current_fees = get_accumulated_fees(&env)?;
-        let new_fees = current_fees.checked_add(trade.fee).ok_or(ContractError::Overflow)?;
-        set_accumulated_fees(&env, new_fees);
-        let token_client = token::Client::new(&env, &trade.currency);
-        let payout = trade.amount.checked_sub(trade.fee).ok_or(ContractError::Overflow)?;
-        let recipient = match resolution {
-            DisputeResolution::ReleaseToBuyer => trade.buyer.clone(),
-            DisputeResolution::ReleaseToSeller => trade.seller.clone(),
-        };
-        let payout = trade.amount.checked_sub(trade.fee).ok_or(ContractError::Overflow)?;
-        token_client.transfer(
-            &env.current_contract_address(),
-            &recipient,
-            &(payout as i128),
-        );
-        let current_fees = get_currency_fees(&env, &trade.currency);
-        let new_fees = current_fees.checked_add(trade.fee).ok_or(ContractError::Overflow)?;
-        set_accumulated_fees(&env, new_fees);
+        // Update accumulated fees
+        add_accumulated_fees(&env, trade.fee)?;
 
         // Update arbitrator reputation stats
-        let mut rep = storage::get_arbitrator_reputation(&env, &arbitrator);
-        rep.resolved_count = rep.resolved_count.saturating_add(1);
-        rep.total_disputes = rep.total_disputes.saturating_add(1);
-        match resolution {
-            DisputeResolution::ReleaseToBuyer => rep.buyer_wins = rep.buyer_wins.saturating_add(1),
-            DisputeResolution::ReleaseToSeller => rep.seller_wins = rep.seller_wins.saturating_add(1),
+        match &trade.arbitrator {
+            Some(ArbitrationConfig::Single(arbitrator)) => {
+                let mut rep = storage::get_arbitrator_reputation(&env, arbitrator);
+                rep.resolved_count = rep.resolved_count.saturating_add(1);
+                match resolution {
+                    DisputeResolution::ReleaseToBuyer => rep.buyer_wins = rep.buyer_wins.saturating_add(1),
+                    DisputeResolution::ReleaseToSeller => rep.seller_wins = rep.seller_wins.saturating_add(1),
+                    DisputeResolution::Partial { .. } => {}
+                }
+                save_arbitrator_reputation(&env, arbitrator, &rep);
+                events::emit_arb_rep_updated(&env, arbitrator.clone(), rep.resolved_count, rep.rating_sum, rep.rating_count);
+            }
+            Some(ArbitrationConfig::MultiSig(config)) => {
+                for i in 0..config.arbitrators.len() {
+                    let arb = config.arbitrators.get(i).unwrap();
+                    let mut rep = storage::get_arbitrator_reputation(&env, arb);
+                    rep.resolved_count = rep.resolved_count.saturating_add(1);
+                    match resolution {
+                        DisputeResolution::ReleaseToBuyer => rep.buyer_wins = rep.buyer_wins.saturating_add(1),
+                        DisputeResolution::ReleaseToSeller => rep.seller_wins = rep.seller_wins.saturating_add(1),
+                        DisputeResolution::Partial { .. } => {}
+                    }
+                    save_arbitrator_reputation(&env, arb, &rep);
+                    events::emit_arb_rep_updated(&env, arb.clone(), rep.resolved_count, rep.rating_sum, rep.rating_count);
+                }
+                // Clear votes after resolution
+                storage::clear_votes_for_trade(&env, trade_id, &config.arbitrators);
+            }
+            None => {}
         }
         save_arbitrator_reputation(&env, &arbitrator, &rep);
         events::emit_arb_rep_updated(&env, arbitrator.clone(), rep.resolved_count, rep.rating_sum, rep.rating_count);
@@ -999,7 +1113,7 @@ impl StellarEscrowContract {
             buyer: buyer.clone(),
             amount,
             fee,
-            arbitrator: terms.default_arbitrator,
+            arbitrator: terms.default_arbitrator.map(ArbitrationConfig::Single),
             status: TradeStatus::Created,
             expiry_time: None,
             currency: get_usdc_token(&env)?,
@@ -1144,39 +1258,62 @@ impl StellarEscrowContract {
     // Upgrade Mechanism
     // -------------------------------------------------------------------------
 
-    /// Upgrade the contract WASM (admin only).
-    /// After calling this, invoke `migrate()` if state changes are needed.
+    /// Step 1: Admin proposes a WASM upgrade with a 24-hour timelock.
+    /// Replaces any existing pending proposal. Emits `EvUpgradeProposed`.
+    pub fn propose_upgrade(
+        env: Env,
+        admin: Address,
+        new_wasm_hash: BytesN<32>,
+        description: soroban_sdk::String,
+    ) -> Result<(), ContractError> {
+        require_initialized(&env)?;
+        upgrade::propose_upgrade(&env, &admin, new_wasm_hash, description)
+    }
+
+    /// Cancel a pending upgrade proposal before it is executed.
+    pub fn cancel_upgrade(env: Env, admin: Address) -> Result<(), ContractError> {
+        require_initialized(&env)?;
+        upgrade::cancel_upgrade(&env, &admin)
+    }
+
+    /// Step 2: Execute the upgrade after the timelock has passed.
+    /// Snapshots state for rollback, swaps WASM, sets upgrade guard.
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), ContractError> {
         require_initialized(&env)?;
         let admin = get_admin(&env)?;
         admin.require_auth();
-        env.deployer().update_current_contract_wasm(new_wasm_hash);
-        events::emit_upgraded(&env, get_version(&env));
-        Ok(())
+        upgrade::execute_upgrade(&env, &admin)
     }
 
-    /// Run post-upgrade state migration.
-    /// `expected_version` must match the current stored version to prevent
-    /// accidental double-application. Sets version to `expected_version + 1`.
+    /// Step 3: Run post-upgrade state migrations and finalise the upgrade.
+    /// `expected_version` must match the current stored version.
     pub fn migrate(env: Env, expected_version: u32) -> Result<(), ContractError> {
         require_initialized(&env)?;
         let admin = get_admin(&env)?;
         admin.require_auth();
-        let current = get_version(&env);
-        if current != expected_version {
-            return Err(ContractError::MigrationVersionMismatch);
-        }
-        // --- place version-specific migration logic here ---
-        // e.g. if expected_version == 1 { backfill_new_field(&env); }
-        let next = current.checked_add(1).ok_or(ContractError::Overflow)?;
-        set_version(&env, next);
-        events::emit_migrated(&env, current, next);
-        Ok(())
+        upgrade::run_migration(&env, &admin, expected_version)
+    }
+
+    /// Rollback the upgrade within the 1-hour rollback window.
+    /// Restores version and fee bps from the pre-upgrade snapshot.
+    pub fn rollback_upgrade(env: Env, admin: Address) -> Result<(), ContractError> {
+        require_initialized(&env)?;
+        upgrade::rollback_upgrade(&env, &admin)
     }
 
     /// Returns the current contract version.
     pub fn version(env: Env) -> u32 {
         get_version(&env)
+    }
+
+    /// Returns the pending upgrade proposal, if any.
+    pub fn get_upgrade_proposal(env: Env) -> Option<upgrade::UpgradeProposal> {
+        upgrade::get_upgrade_proposal(&env)
+    }
+
+    /// Returns the rollback snapshot, if an upgrade is in progress.
+    pub fn get_rollback_snapshot(env: Env) -> Option<upgrade::RollbackSnapshot> {
+        upgrade::get_rollback_snapshot(&env)
     }
 
     // -------------------------------------------------------------------------
@@ -1229,8 +1366,10 @@ impl StellarEscrowContract {
             buyer: buyer.clone(),
             amount,
             fee,
-            arbitrator,
+            arbitrator: arbitrator.map(ArbitrationConfig::Single),
             status: TradeStatus::AwaitingBridge,
+            expiry_time: None,
+            currency: get_usdc_token(&env)?,
             metadata: OptionalMetadata::None,
         };
         save_trade(&env, trade_id, &trade);

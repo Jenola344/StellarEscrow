@@ -24,7 +24,11 @@ pub fn map_contract_error(code: u32) -> MobileError {
         19 => ("Trade amount does not match template.", false),
         _ => ("An unexpected error occurred. Please try again.", true),
     };
-    MobileError { code, message: message.to_string(), retryable }
+    MobileError {
+        code,
+        message: message.to_string(),
+        retryable,
+    }
 }
 
 /// Map a network/submission HTTP status to a mobile-friendly error.
@@ -37,5 +41,9 @@ pub fn map_http_error(status: u32, body: &str) -> MobileError {
         401 | 403 => ("Authentication failed.", false),
         _ => ("Submission failed. Please try again.", true),
     };
-    MobileError { code: status, message: message.to_string(), retryable }
+    MobileError {
+        code: status,
+        message: message.to_string(),
+        retryable,
+    }
 }

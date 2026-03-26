@@ -3,20 +3,21 @@ use axum::{
     http::StatusCode,
     response::{Json, Response},
 };
+use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;
 
+use crate::database::Database;
 use crate::error::AppError;
 use crate::fraud_service::FraudDetectionService;
 use crate::health::HealthState;
 use crate::models::{
-    AuditQuery, DiscoveryQuery, Event, EventQuery, EventStats, GlobalSearchQuery, GlobalSearchResponse,
-    HistoryQuery, IndexerStatus, NewAuditLog, PaginatedResponse, PagedResponse, ReplayRequest,
-    RetentionRequest, RetentionResponse, StatsResponse, SuggestionQuery, TradeSearchQuery,
-    WebSocketMessage,
+    AuditQuery, DiscoveryQuery, Event, EventQuery, EventStats, GlobalSearchQuery,
+    GlobalSearchResponse, HistoryQuery, IndexerStatus, NewAuditLog, PagedResponse,
+    PaginatedResponse, ReplayRequest, RetentionRequest, RetentionResponse, StatsResponse,
+    SuggestionQuery, TradeSearchQuery, WebSocketMessage,
 };
-use crate::database::Database;
 use crate::websocket::WebSocketManager;
 
 /// Default page size — kept small for mobile clients.
@@ -84,7 +85,11 @@ pub async fn get_events(
 ) -> Result<Json<PaginatedResponse<Event>>, AppError> {
     let limit = params.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
     let offset = params.offset.unwrap_or(0).max(0);
-    let query = EventQuery { limit: Some(limit), offset: Some(offset), ..params };
+    let query = EventQuery {
+        limit: Some(limit),
+        offset: Some(offset),
+        ..params
+    };
 
     let (events, total) = tokio::try_join!(
         state.database.get_events(&query),
@@ -93,7 +98,7 @@ pub async fn get_events(
 
     Ok(Json(PaginatedResponse {
         has_more: offset + limit < total,
-        items: events,
+        data: events,
         total,
         limit,
         offset,
@@ -115,14 +120,25 @@ pub async fn get_events_by_trade_id(
 ) -> Result<Json<PagedResponse<Event>>, AppError> {
     let limit = params.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
     let offset = params.offset.unwrap_or(0).max(0);
-    let query = EventQuery { trade_id: Some(trade_id), limit: Some(limit), offset: Some(offset), ..params };
+    let query = EventQuery {
+        trade_id: Some(trade_id),
+        limit: Some(limit),
+        offset: Some(offset),
+        ..params
+    };
 
     let (events, total) = tokio::try_join!(
         state.database.get_events(&query),
         state.database.count_events(&query),
     )?;
 
-    Ok(Json(PagedResponse { has_more: offset + limit < total, items: events, total, limit, offset }))
+    Ok(Json(PagedResponse {
+        has_more: offset + limit < total,
+        items: events,
+        total,
+        limit,
+        offset,
+    }))
 }
 
 pub async fn get_events_by_type(
@@ -132,14 +148,25 @@ pub async fn get_events_by_type(
 ) -> Result<Json<PagedResponse<Event>>, AppError> {
     let limit = params.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
     let offset = params.offset.unwrap_or(0).max(0);
-    let query = EventQuery { event_type: Some(event_type), limit: Some(limit), offset: Some(offset), ..params };
+    let query = EventQuery {
+        event_type: Some(event_type),
+        limit: Some(limit),
+        offset: Some(offset),
+        ..params
+    };
 
     let (events, total) = tokio::try_join!(
         state.database.get_events(&query),
         state.database.count_events(&query),
     )?;
 
-    Ok(Json(PagedResponse { has_more: offset + limit < total, items: events, total, limit, offset }))
+    Ok(Json(PagedResponse {
+        has_more: offset + limit < total,
+        items: events,
+        total,
+        limit,
+        offset,
+    }))
 }
 
 pub async fn replay_events(
@@ -147,7 +174,10 @@ pub async fn replay_events(
     Json(request): Json<ReplayRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let to_ledger = request.to_ledger.unwrap_or(i64::MAX);
-    let events = state.database.get_events_in_range(request.from_ledger, to_ledger, "contract_id").await?;
+    let events = state
+        .database
+        .get_events_in_range(request.from_ledger, to_ledger, "contract_id")
+        .await?;
 
     for event in &events {
         let ws_message = WebSocketMessage {
@@ -158,7 +188,9 @@ pub async fn replay_events(
         state.ws_manager.broadcast(ws_message).await;
     }
 
-    Ok(Json(json!({ "replayed": events.len(), "from_ledger": request.from_ledger, "to_ledger": request.to_ledger })))
+    Ok(Json(
+        json!({ "replayed": events.len(), "from_ledger": request.from_ledger, "to_ledger": request.to_ledger }),
+    ))
 }
 
 pub async fn ws_handler(
@@ -169,9 +201,7 @@ pub async fn ws_handler(
 }
 
 /// GET /status — indexer sync state for loading indicators.
-pub async fn get_status(
-    State(state): State<AppState>,
-) -> Result<Json<IndexerStatus>, AppError> {
+pub async fn get_status(State(state): State<AppState>) -> Result<Json<IndexerStatus>, AppError> {
     let (total_events, latest) = tokio::try_join!(
         state.database.get_event_count(None),
         state.database.get_latest_ledger_global(),
@@ -192,9 +222,7 @@ pub async fn get_status(
 }
 
 /// GET /stats — per-event-type counts for dashboard skeleton panels.
-pub async fn get_stats(
-    State(state): State<AppState>,
-) -> Result<Json<StatsResponse>, AppError> {
+pub async fn get_stats(State(state): State<AppState>) -> Result<Json<StatsResponse>, AppError> {
     let (total_events, type_counts) = tokio::try_join!(
         state.database.get_event_count(None),
         state.database.get_event_type_counts(),
@@ -205,7 +233,10 @@ pub async fn get_stats(
         .map(|(event_type, count)| EventStats { event_type, count })
         .collect();
 
-    Ok(Json(StatsResponse { total_events, by_type }))
+    Ok(Json(StatsResponse {
+        total_events,
+        by_type,
+    }))
 }
 
 pub async fn global_search(
@@ -325,14 +356,19 @@ pub async fn update_fraud_review(
     State(state): State<AppState>,
     Json(payload): Json<FraudReviewRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    state.database.update_fraud_review(
-        payload.trade_id,
-        &payload.status,
-        &payload.reviewer,
-        &payload.notes,
-    ).await?;
-    
-    Ok(Json(json!({ "status": "updated", "trade_id": payload.trade_id })))
+    state
+        .database
+        .update_fraud_review(
+            payload.trade_id,
+            &payload.status,
+            &payload.reviewer,
+            &payload.notes,
+        )
+        .await?;
+
+    Ok(Json(
+        json!({ "status": "updated", "trade_id": payload.trade_id }),
+    ))
 }
 
 #[derive(Clone)]
@@ -343,6 +379,8 @@ pub struct AppState {
     pub fraud_service: Arc<FraudDetectionService>,
     pub notification_service: Arc<crate::notification_service::NotificationService>,
     pub gateway: Arc<crate::gateway::GatewayState>,
+    pub performance_service: Arc<crate::performance_service::PerformanceService>,
+    pub integration_service: Arc<crate::integration_service::IntegrationService>,
 }
 
 // =============================================================================
@@ -365,7 +403,11 @@ pub async fn query_audit_logs(
 ) -> Result<Json<PagedResponse<crate::models::AuditLog>>, AppError> {
     let limit = params.limit.unwrap_or(50).clamp(1, 500);
     let offset = params.offset.unwrap_or(0).max(0);
-    let q = AuditQuery { limit: Some(limit), offset: Some(offset), ..params };
+    let q = AuditQuery {
+        limit: Some(limit),
+        offset: Some(offset),
+        ..params
+    };
 
     let (logs, total) = tokio::try_join!(
         state.database.query_audit_logs(&q),
@@ -396,7 +438,10 @@ pub async fn purge_audit_logs(
 ) -> Result<Json<RetentionResponse>, AppError> {
     let days = body.older_than_days.unwrap_or(90).clamp(1, 365);
     let deleted = state.database.purge_old_audit_logs(days).await?;
-    Ok(Json(RetentionResponse { deleted, older_than_days: days }))
+    Ok(Json(RetentionResponse {
+        deleted,
+        older_than_days: days,
+    }))
 }
 
 // =============================================================================
@@ -408,7 +453,10 @@ pub async fn get_notification_preferences(
     Path(address): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<crate::models::NotificationPreferences>, AppError> {
-    let prefs = state.database.get_notification_preferences(&address).await?
+    let prefs = state
+        .database
+        .get_notification_preferences(&address)
+        .await?
         .ok_or_else(|| AppError::NotFound("preferences not found".into()))?;
     Ok(Json(prefs))
 }
@@ -419,7 +467,10 @@ pub async fn upsert_notification_preferences(
     State(state): State<AppState>,
     Json(body): Json<crate::models::UpdateNotificationPreferences>,
 ) -> Result<Json<crate::models::NotificationPreferences>, AppError> {
-    let prefs = state.database.upsert_notification_preferences(&address, &body).await?;
+    let prefs = state
+        .database
+        .upsert_notification_preferences(&address, &body)
+        .await?;
     Ok(Json(prefs))
 }
 
@@ -429,7 +480,10 @@ pub async fn get_notification_log(
     Query(params): Query<crate::models::HistoryQuery>,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<crate::models::NotificationLogEntry>>, AppError> {
-    let entries = state.database.get_notification_log(&address, params.limit.unwrap_or(50)).await?;
+    let entries = state
+        .database
+        .get_notification_log(&address, params.limit.unwrap_or(50))
+        .await?;
     Ok(Json(entries))
 }
 
@@ -442,7 +496,59 @@ pub async fn gateway_stats(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let stats = crate::gateway::get_gateway_stats(&state.gateway);
-    Ok(Json(serde_json::to_value(stats).map_err(|e| {
-        AppError::Internal(format!("Failed to serialize gateway stats: {}", e))
-    })?))
+    Ok(Json(
+        serde_json::to_value(stats).map_err(|_| AppError::InternalServerError)?,
+    ))
+}
+
+// =============================================================================
+// Integration Service Handlers
+// =============================================================================
+
+/// GET /integrations/stats — connector monitoring stats
+pub async fn get_integration_stats(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let stats = state.integration_service.get_stats().await;
+    Json(serde_json::to_value(stats).unwrap_or_default())
+}
+
+/// GET /integrations/log?connector_id=&limit= — delivery log
+pub async fn get_integration_log(
+    Query(params): Query<IntegrationLogQuery>,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<crate::integration_service::DeliveryRecord>>, AppError> {
+    let limit = params.limit.unwrap_or(50).clamp(1, 200);
+    let records = state
+        .integration_service
+        .get_delivery_log(params.connector_id.as_deref(), limit)
+        .await
+        .map_err(AppError::Database)?;
+    Ok(Json(records))
+}
+
+#[derive(serde::Deserialize)]
+pub struct IntegrationLogQuery {
+    pub connector_id: Option<String>,
+    pub limit: Option<i64>,
+}
+
+// =============================================================================
+// Performance Monitoring Handlers
+// =============================================================================
+
+/// GET /performance/dashboard — full APM dashboard (routes, stats, alerts).
+pub async fn get_performance_dashboard(
+    State(state): State<AppState>,
+) -> Result<Json<crate::performance_service::PerformanceDashboard>, AppError> {
+    Ok(Json(state.performance_service.dashboard().await))
+}
+
+/// GET /performance/alerts — active performance alerts.
+pub async fn get_performance_alerts(
+    State(state): State<AppState>,
+) -> Json<serde_json::Value> {
+    let dashboard = state.performance_service.dashboard().await;
+    Json(serde_json::json!({
+        "active": dashboard.active_alerts,
+        "total": dashboard.active_alerts.len(),
+    }))
 }

@@ -11,6 +11,8 @@ output "api_url" {
 output "alb_arn" {
   description = "ARN of the Application Load Balancer"
   value       = module.load_balancer.alb_arn
+  description = "Public URL of the API load balancer"
+  value       = module.api.alb_dns_name
 }
 
 output "db_endpoint" {
@@ -36,5 +38,7 @@ output "lb_dashboard_name" {
 
 output "infra_version" {
   description = "Infrastructure schema version"
+output "infra_version" {
+  description = "Infrastructure version deployed"
   value       = local.infra_version
 }

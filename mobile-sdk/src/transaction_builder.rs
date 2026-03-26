@@ -18,7 +18,13 @@ pub fn build_fund_trade(
     sequence: i64,
     network_passphrase: &str,
 ) -> Result<UnsignedTransaction, MobileSdkError> {
-    build_invoke(contract_id, "fund_trade", &[trade_id.to_string()], sequence, network_passphrase)
+    build_invoke(
+        contract_id,
+        "fund_trade",
+        &[trade_id.to_string()],
+        sequence,
+        network_passphrase,
+    )
 }
 
 /// Build an unsigned transaction XDR for `confirm_receipt`.
@@ -91,8 +97,7 @@ fn build_invoke(
         "sequence": sequence,
     });
     let xdr = STANDARD.encode(
-        serde_json::to_string(&payload)
-            .map_err(|e| MobileSdkError::BuildFailed(e.to_string()))?,
+        serde_json::to_string(&payload).map_err(|e| MobileSdkError::BuildFailed(e.to_string()))?,
     );
     Ok(UnsignedTransaction {
         xdr,

@@ -133,7 +133,9 @@ impl RateLimiter {
 
         // Blacklist — hard block
         if self.blacklist.read().await.contains(&ip) {
-            self.counters.total_blacklisted.fetch_add(1, Ordering::Relaxed);
+            self.counters
+                .total_blacklisted
+                .fetch_add(1, Ordering::Relaxed);
             warn!("Blacklisted IP blocked: {}", ip);
             return Err(RateLimitError::Blacklisted);
         }
@@ -213,8 +215,20 @@ impl RateLimiter {
             total_blocked: self.counters.total_blocked.load(Ordering::Relaxed),
             total_blacklisted: self.counters.total_blacklisted.load(Ordering::Relaxed),
             active_buckets: self.buckets.len(),
-            whitelist: self.whitelist.read().await.iter().map(|ip| ip.to_string()).collect(),
-            blacklist: self.blacklist.read().await.iter().map(|ip| ip.to_string()).collect(),
+            whitelist: self
+                .whitelist
+                .read()
+                .await
+                .iter()
+                .map(|ip| ip.to_string())
+                .collect(),
+            blacklist: self
+                .blacklist
+                .read()
+                .await
+                .iter()
+                .map(|ip| ip.to_string())
+                .collect(),
             tier_overrides: self
                 .tier_overrides
                 .iter()
@@ -248,7 +262,11 @@ pub struct RateLimitHeaders {
 
 impl RateLimitHeaders {
     fn unlimited() -> Self {
-        Self { limit: u64::MAX, remaining: u64::MAX, reset_secs: 0 }
+        Self {
+            limit: u64::MAX,
+            remaining: u64::MAX,
+            reset_secs: 0,
+        }
     }
 }
 

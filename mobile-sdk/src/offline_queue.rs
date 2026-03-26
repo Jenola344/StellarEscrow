@@ -9,7 +9,9 @@ pub struct OfflineQueue {
 
 impl OfflineQueue {
     pub fn new() -> Self {
-        Self { queue: VecDeque::new() }
+        Self {
+            queue: VecDeque::new(),
+        }
     }
 
     /// Enqueue a transaction for later submission when online.
@@ -39,7 +41,9 @@ impl OfflineQueue {
     /// Restore queue from JSON (call on app startup).
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         let items: Vec<QueuedTransaction> = serde_json::from_str(json)?;
-        Ok(Self { queue: VecDeque::from(items) })
+        Ok(Self {
+            queue: VecDeque::from(items),
+        })
     }
 }
 

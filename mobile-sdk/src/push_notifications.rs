@@ -31,13 +31,13 @@ pub fn unregister_push(indexer_url: &str, device_token: &str) -> Result<(), Mobi
 /// Map a trade event type to a human-readable push notification body.
 pub fn notification_body(event_type: &str, trade_id: u64) -> String {
     match event_type {
-        "funded"   => format!("Trade #{trade_id} has been funded by the buyer."),
+        "funded" => format!("Trade #{trade_id} has been funded by the buyer."),
         "complete" => format!("Trade #{trade_id} marked complete — confirm receipt."),
-        "confirm"  => format!("Trade #{trade_id} settled. Funds released."),
-        "dispute"  => format!("Trade #{trade_id} is under dispute."),
+        "confirm" => format!("Trade #{trade_id} settled. Funds released."),
+        "dispute" => format!("Trade #{trade_id} is under dispute."),
         "resolved" => format!("Trade #{trade_id} dispute resolved."),
-        "cancel"   => format!("Trade #{trade_id} was cancelled."),
-        _          => format!("Trade #{trade_id} updated."),
+        "cancel" => format!("Trade #{trade_id} was cancelled."),
+        _ => format!("Trade #{trade_id} updated."),
     }
 }
 

@@ -127,7 +127,13 @@ pub struct PaginatedResponse<T> {
 impl<T> PaginatedResponse<T> {
     pub fn new(data: Vec<T>, total: i64, limit: i64, offset: i64) -> Self {
         let has_more = offset + limit < total;
-        Self { data, total, limit, offset, has_more }
+        Self {
+            data,
+            total,
+            limit,
+            offset,
+            has_more,
+        }
     }
 }
 
@@ -306,11 +312,11 @@ pub enum AuditCategory {
 impl AuditCategory {
     pub fn as_str(&self) -> &'static str {
         match self {
-            AuditCategory::Security   => "security",
-            AuditCategory::Trade      => "trade",
-            AuditCategory::Admin      => "admin",
+            AuditCategory::Security => "security",
+            AuditCategory::Trade => "trade",
+            AuditCategory::Admin => "admin",
             AuditCategory::Governance => "governance",
-            AuditCategory::System     => "system",
+            AuditCategory::System => "system",
         }
     }
 }
@@ -328,7 +334,7 @@ impl AuditOutcome {
         match self {
             AuditOutcome::Success => "success",
             AuditOutcome::Failure => "failure",
-            AuditOutcome::Denied  => "denied",
+            AuditOutcome::Denied => "denied",
         }
     }
 }
@@ -345,9 +351,9 @@ pub enum AuditSeverity {
 impl AuditSeverity {
     pub fn as_str(&self) -> &'static str {
         match self {
-            AuditSeverity::Info     => "info",
-            AuditSeverity::Warn     => "warn",
-            AuditSeverity::Error    => "error",
+            AuditSeverity::Info => "info",
+            AuditSeverity::Warn => "warn",
+            AuditSeverity::Error => "error",
             AuditSeverity::Critical => "critical",
         }
     }

@@ -12,9 +12,9 @@ use crate::error::AppError;
 use crate::models::FileRecord;
 
 /// Maximum file sizes per category (bytes)
-const MAX_AVATAR_SIZE: usize = 2 * 1024 * 1024;       // 2 MB
-const MAX_EVIDENCE_SIZE: usize = 20 * 1024 * 1024;    // 20 MB
-const MAX_DOCUMENT_SIZE: usize = 10 * 1024 * 1024;    // 10 MB
+const MAX_AVATAR_SIZE: usize = 2 * 1024 * 1024; // 2 MB
+const MAX_EVIDENCE_SIZE: usize = 20 * 1024 * 1024; // 20 MB
+const MAX_DOCUMENT_SIZE: usize = 10 * 1024 * 1024; // 10 MB
 
 /// Allowed MIME types per category
 const AVATAR_MIMES: &[&str] = &["image/jpeg", "image/png", "image/webp"];
@@ -77,9 +77,9 @@ impl StorageService {
     pub async fn new(pool: PgPool, base_dir: impl Into<PathBuf>) -> Result<Self, AppError> {
         let base_dir = base_dir.into();
         for sub in &["avatar", "evidence", "document"] {
-            fs::create_dir_all(base_dir.join(sub)).await.map_err(|e| {
-                AppError::Storage(format!("Failed to create storage dir: {e}"))
-            })?;
+            fs::create_dir_all(base_dir.join(sub))
+                .await
+                .map_err(|e| AppError::Storage(format!("Failed to create storage dir: {e}")))?;
         }
         Ok(Self { pool, base_dir })
     }
@@ -108,9 +108,9 @@ impl StorageService {
         let ext = extension_for(mime_type);
         let stored_name = format!("{}.{}", id, ext);
         let dest = self.base_dir.join(category.as_str()).join(&stored_name);
-        fs::write(&dest, &final_data).await.map_err(|e| {
-            AppError::Storage(format!("Failed to write file: {e}"))
-        })?;
+        fs::write(&dest, &final_data)
+            .await
+            .map_err(|e| AppError::Storage(format!("Failed to write file: {e}")))?;
 
         // --- DB record ---
         let record = FileRecord {
@@ -159,10 +159,13 @@ impl StorageService {
         let record = self.get_record(file_id).await?;
         self.check_access(&record, requester_id)?;
 
-        let path = self.base_dir.join(&record.file_type).join(&record.stored_name);
-        let data = fs::read(&path).await.map_err(|e| {
-            AppError::Storage(format!("Failed to read file: {e}"))
-        })?;
+        let path = self
+            .base_dir
+            .join(&record.file_type)
+            .join(&record.stored_name);
+        let data = fs::read(&path)
+            .await
+            .map_err(|e| AppError::Storage(format!("Failed to read file: {e}")))?;
 
         Ok((record, Bytes::from(data)))
     }
@@ -171,10 +174,15 @@ impl StorageService {
     pub async fn delete(&self, file_id: Uuid, requester_id: &str) -> Result<(), AppError> {
         let record = self.get_record(file_id).await?;
         if record.owner_id != requester_id {
-            return Err(AppError::Forbidden("Only the owner can delete this file".into()));
+            return Err(AppError::Forbidden(
+                "Only the owner can delete this file".into(),
+            ));
         }
 
-        let path = self.base_dir.join(&record.file_type).join(&record.stored_name);
+        let path = self
+            .base_dir
+            .join(&record.file_type)
+            .join(&record.stored_name);
         let _ = fs::remove_file(&path).await; // best-effort
 
         sqlx::query("DELETE FROM files WHERE id = $1")
@@ -220,7 +228,12 @@ impl StorageService {
             .ok_or(AppError::FileNotFound)
     }
 
-    fn validate(&self, category: &FileCategory, mime_type: &str, size: usize) -> Result<(), AppError> {
+    fn validate(
+        &self,
+        category: &FileCategory,
+        mime_type: &str,
+        size: usize,
+    ) -> Result<(), AppError> {
         if size > category.max_size() {
             return Err(AppError::FileTooLarge(category.max_size()));
         }

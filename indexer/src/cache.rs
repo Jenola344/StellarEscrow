@@ -1,5 +1,5 @@
-use std::time::Duration;
 use serde::{de::DeserializeOwned, Serialize};
+use std::time::Duration;
 
 /// Thin Redis cache wrapper used by API handlers.
 /// Falls back gracefully (cache miss) if Redis is unavailable.
@@ -46,8 +46,12 @@ impl Cache {
     }
 
     pub async fn set<T: Serialize>(&self, key: &str, value: &T, ttl: Duration) {
-        let Some(mut conn) = self.client.clone() else { return };
-        let Ok(raw) = serde_json::to_string(value) else { return };
+        let Some(mut conn) = self.client.clone() else {
+            return;
+        };
+        let Ok(raw) = serde_json::to_string(value) else {
+            return;
+        };
         let _: Result<(), _> = redis::cmd("SET")
             .arg(key)
             .arg(raw)
@@ -58,22 +62,23 @@ impl Cache {
     }
 
     pub async fn invalidate(&self, key: &str) {
-        let Some(mut conn) = self.client.clone() else { return };
+        let Some(mut conn) = self.client.clone() else {
+            return;
+        };
         let _: Result<(), _> = redis::cmd("DEL").arg(key).query_async(&mut conn).await;
     }
 
     pub async fn invalidate_pattern(&self, pattern: &str) {
-        let Some(mut conn) = self.client.clone() else { return };
+        let Some(mut conn) = self.client.clone() else {
+            return;
+        };
         let keys: Vec<String> = redis::cmd("KEYS")
             .arg(pattern)
             .query_async(&mut conn)
             .await
             .unwrap_or_default();
         if !keys.is_empty() {
-            let _: Result<(), _> = redis::cmd("DEL")
-                .arg(&keys)
-                .query_async(&mut conn)
-                .await;
+            let _: Result<(), _> = redis::cmd("DEL").arg(&keys).query_async(&mut conn).await;
         }
     }
 }

@@ -50,21 +50,48 @@ impl NotificationService {
             if prefs.email_enabled {
                 if let Some(ref email) = prefs.email_address {
                     let result = channels::send_email(&self.cfg, email, &subject, &body).await;
-                    self.db.log_notification(&address, "email", template_id.as_str(), Some(&subject), &body, result).await;
+                    self.db
+                        .log_notification(
+                            &address,
+                            "email",
+                            template_id.as_str(),
+                            Some(&subject),
+                            &body,
+                            result,
+                        )
+                        .await;
                 }
             }
 
             if prefs.sms_enabled {
                 if let Some(ref phone) = prefs.phone_number {
                     let result = channels::send_sms(&self.cfg, phone, &body).await;
-                    self.db.log_notification(&address, "sms", template_id.as_str(), None, &body, result).await;
+                    self.db
+                        .log_notification(
+                            &address,
+                            "sms",
+                            template_id.as_str(),
+                            None,
+                            &body,
+                            result,
+                        )
+                        .await;
                 }
             }
 
             if prefs.push_enabled {
                 if let Some(ref token) = prefs.push_token {
                     let result = channels::send_push(&self.cfg, token, &subject, &body).await;
-                    self.db.log_notification(&address, "push", template_id.as_str(), Some(&subject), &body, result).await;
+                    self.db
+                        .log_notification(
+                            &address,
+                            "push",
+                            template_id.as_str(),
+                            Some(&subject),
+                            &body,
+                            result,
+                        )
+                        .await;
                 }
             }
         }
@@ -77,10 +104,25 @@ impl NotificationService {
 
 fn event_vars(data: &serde_json::Value) -> HashMap<&'static str, String> {
     let mut m = HashMap::new();
-    let keys = ["trade_id", "seller", "buyer", "amount", "payout", "fee", "raised_by", "resolution", "recipient"];
+    let keys = [
+        "trade_id",
+        "seller",
+        "buyer",
+        "amount",
+        "payout",
+        "fee",
+        "raised_by",
+        "resolution",
+        "recipient",
+    ];
     for k in keys {
         if let Some(v) = data.get(k) {
-            m.insert(k, v.as_str().map(|s| s.to_string()).unwrap_or_else(|| v.to_string()));
+            m.insert(
+                k,
+                v.as_str()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| v.to_string()),
+            );
         }
     }
     m
@@ -100,12 +142,12 @@ fn trade_addresses(data: &serde_json::Value) -> Vec<String> {
 
 fn prefs_allow(prefs: &crate::models::NotificationPreferences, id: &TemplateId) -> bool {
     match id {
-        TemplateId::TradeCreated    => prefs.on_trade_created,
-        TemplateId::TradeFunded     => prefs.on_trade_funded,
-        TemplateId::TradeCompleted  => prefs.on_trade_completed,
-        TemplateId::TradeConfirmed  => prefs.on_trade_confirmed,
-        TemplateId::DisputeRaised   => prefs.on_dispute_raised,
+        TemplateId::TradeCreated => prefs.on_trade_created,
+        TemplateId::TradeFunded => prefs.on_trade_funded,
+        TemplateId::TradeCompleted => prefs.on_trade_completed,
+        TemplateId::TradeConfirmed => prefs.on_trade_confirmed,
+        TemplateId::DisputeRaised => prefs.on_dispute_raised,
         TemplateId::DisputeResolved => prefs.on_dispute_resolved,
-        TemplateId::TradeCancelled  => prefs.on_trade_cancelled,
+        TemplateId::TradeCancelled => prefs.on_trade_cancelled,
     }
 }

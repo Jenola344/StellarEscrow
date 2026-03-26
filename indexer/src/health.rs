@@ -110,8 +110,7 @@ impl MetricsCollector {
         let avg_response_ms = if self.response_times_ms.is_empty() {
             0.0
         } else {
-            self.response_times_ms.iter().sum::<u64>() as f64
-                / self.response_times_ms.len() as f64
+            self.response_times_ms.iter().sum::<u64>() as f64 / self.response_times_ms.len() as f64
         };
 
         let p95_response_ms = {
@@ -187,8 +186,7 @@ impl HealthMonitor {
             || horizon.status == ServiceStatus::Unhealthy
         {
             ServiceStatus::Unhealthy
-        } else if db.status == ServiceStatus::Degraded
-            || horizon.status == ServiceStatus::Degraded
+        } else if db.status == ServiceStatus::Degraded || horizon.status == ServiceStatus::Degraded
         {
             ServiceStatus::Degraded
         } else {
@@ -296,26 +294,29 @@ impl HealthMonitor {
     ) {
         let mut alerts = self.alerts.write().await;
 
-        let fire = |alerts: &mut Vec<Alert>,
-                    component: &str,
-                    severity: AlertSeverity,
-                    message: &str| {
-            // Avoid duplicate active alerts for the same component
-            let already_active = alerts.iter().any(|a: &Alert| {
-                a.component == component && a.resolved_at.is_none() && a.message == message
-            });
-            if !already_active {
-                warn!("[ALERT] {} - {}: {}", severity_label(&severity), component, message);
-                alerts.push(Alert {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    severity,
-                    component: component.to_string(),
-                    message: message.to_string(),
-                    triggered_at: Utc::now(),
-                    resolved_at: None,
+        let fire =
+            |alerts: &mut Vec<Alert>, component: &str, severity: AlertSeverity, message: &str| {
+                // Avoid duplicate active alerts for the same component
+                let already_active = alerts.iter().any(|a: &Alert| {
+                    a.component == component && a.resolved_at.is_none() && a.message == message
                 });
-            }
-        };
+                if !already_active {
+                    warn!(
+                        "[ALERT] {} - {}: {}",
+                        severity_label(&severity),
+                        component,
+                        message
+                    );
+                    alerts.push(Alert {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        severity,
+                        component: component.to_string(),
+                        message: message.to_string(),
+                        triggered_at: Utc::now(),
+                        resolved_at: None,
+                    });
+                }
+            };
 
         // Auto-resolve alerts for healthy components
         let now = Utc::now();
@@ -335,15 +336,35 @@ impl HealthMonitor {
         }
 
         if db.status == ServiceStatus::Unhealthy {
-            fire(&mut alerts, "database", AlertSeverity::Critical, "Database is unreachable");
+            fire(
+                &mut alerts,
+                "database",
+                AlertSeverity::Critical,
+                "Database is unreachable",
+            );
         } else if db.status == ServiceStatus::Degraded {
-            fire(&mut alerts, "database", AlertSeverity::Warning, "Database latency is high");
+            fire(
+                &mut alerts,
+                "database",
+                AlertSeverity::Warning,
+                "Database latency is high",
+            );
         }
 
         if horizon.status == ServiceStatus::Unhealthy {
-            fire(&mut alerts, "stellar_horizon", AlertSeverity::Critical, "Stellar Horizon is unreachable");
+            fire(
+                &mut alerts,
+                "stellar_horizon",
+                AlertSeverity::Critical,
+                "Stellar Horizon is unreachable",
+            );
         } else if horizon.status == ServiceStatus::Degraded {
-            fire(&mut alerts, "stellar_horizon", AlertSeverity::Warning, "Stellar Horizon response is slow");
+            fire(
+                &mut alerts,
+                "stellar_horizon",
+                AlertSeverity::Warning,
+                "Stellar Horizon response is slow",
+            );
         }
 
         if metrics.error_rate > 0.1 {
@@ -426,7 +447,9 @@ pub async fn liveness() -> Json<serde_json::Value> {
 }
 
 /// GET /health/ready — full readiness check across all components.
-pub async fn readiness(State(state): State<HealthState>) -> (axum::http::StatusCode, Json<SystemHealth>) {
+pub async fn readiness(
+    State(state): State<HealthState>,
+) -> (axum::http::StatusCode, Json<SystemHealth>) {
     let health = state.monitor.check().await;
     let code = match health.status {
         ServiceStatus::Healthy => axum::http::StatusCode::OK,

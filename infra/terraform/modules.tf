@@ -24,6 +24,8 @@ module "networking" {
 # are available to inject into the api module.
 module "load_balancer" {
   source = "./modules/load_balancer"
+module "api" {
+  source = "./modules/api"
 
   name_prefix                = local.name_prefix
   environment                = var.environment
@@ -71,6 +73,16 @@ module "api" {
   stellar_horizon_url     = var.stellar_horizon_url
   ecs_security_group_id   = module.load_balancer.ecs_sg_id
   api_target_group_arn    = module.load_balancer.api_target_group_arn
+  api_image                  = var.api_image
+  desired_count              = local.cfg.api_desired_count
+  cpu                        = var.api_cpu
+  memory                     = var.api_memory
+  aws_region                 = var.aws_region
+  db_secret_arn              = aws_secretsmanager_secret.db_url.arn
+  stellar_network            = var.stellar_network
+  stellar_contract_id        = var.stellar_contract_id
+  stellar_horizon_url        = var.stellar_horizon_url
+  enable_deletion_protection = local.cfg.enable_deletion_protection
 }
 
 module "database" {
@@ -80,6 +92,7 @@ module "database" {
   vpc_id                = module.networking.vpc_id
   private_subnet_ids    = module.networking.private_subnet_ids
   api_security_group_id = module.load_balancer.ecs_sg_id
+  api_security_group_id = module.api.api_security_group_id
   instance_class        = var.db_instance_class
   allocated_storage_gb  = var.db_allocated_storage_gb
   db_name               = var.db_name

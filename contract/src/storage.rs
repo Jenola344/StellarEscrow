@@ -1,9 +1,11 @@
-use soroban_sdk::{symbol_short, Address, Env, Symbol};
+use soroban_sdk::{symbol_short, Address, Env, Symbol, Vec};
 
 use crate::errors::ContractError;
-use crate::types::{TierConfig, Trade, TradeTemplate, UserTierInfo, Subscription, Proposal, TradePrivacy, DisclosureGrant};
-use crate::types::{TierConfig, Trade, TradeTemplate, UserTierInfo, Subscription, Proposal};
-use crate::types::{ArbitratorReputation, TierConfig, Trade, TradeTemplate, UserTierInfo};
+use crate::types::{
+    ArbitratorReputation, ArbitratorVote, ArbitrationConfig, DisclosureGrant, InsurancePolicy,
+    MultiSigConfig, Proposal, Subscription, TierConfig, Trade, TradePrivacy, TradeTemplate,
+    UserTierInfo, VotingSummary,
+};
 
 const INITIALIZED: &str = "INIT";
 const ADMIN: &str = "ADMIN";
@@ -28,6 +30,7 @@ const TRADE_PRIVACY_PREFIX: &str = "TPRIV";
 const DISCLOSURE_PREFIX: &str = "DISC";
 const ARB_REP_PREFIX: &str = "ARB_REP";
 const ARB_RATED_PREFIX: &str = "ARB_RTD";
+const MULTISIG_VOTE_PREFIX: &str = "MS_VOTE";
 const CURRENCY_FEES_PREFIX: &str = "CFEES";
 const USER_COMPLIANCE_PREFIX: &str = "UCOMP";
 const USER_LIMIT_PREFIX: &str = "ULIM";
@@ -179,6 +182,41 @@ pub fn remove_arbitrator(env: &Env, arbitrator: &Address) {
 pub fn has_arbitrator(env: &Env, arbitrator: &Address) -> bool {
     let key = (ARB_PREFIX, arbitrator);
     env.storage().persistent().has(&key)
+}
+
+// Multi-Signature Arbitration
+pub fn save_arbitrator_vote(env: &Env, trade_id: u64, arbitrator: &Address, vote: &ArbitratorVote) {
+    let key = (MULTISIG_VOTE_PREFIX, trade_id, arbitrator);
+    env.storage().persistent().set(&key, vote);
+}
+
+pub fn get_arbitrator_vote(env: &Env, trade_id: u64, arbitrator: &Address) -> Option<ArbitratorVote> {
+    let key = (MULTISIG_VOTE_PREFIX, trade_id, arbitrator);
+    env.storage().persistent().get(&key)
+}
+
+pub fn has_arbitrator_voted(env: &Env, trade_id: u64, arbitrator: &Address) -> bool {
+    let key = (MULTISIG_VOTE_PREFIX, trade_id, arbitrator);
+    env.storage().persistent().has(&key)
+}
+
+pub fn get_all_votes_for_trade(env: &Env, trade_id: u64, arbitrators: &Vec<Address>) -> Vec<ArbitratorVote> {
+    let mut votes = Vec::new(env);
+    for i in 0..arbitrators.len() {
+        let arbitrator = arbitrators.get(i).unwrap();
+        if let Some(vote) = get_arbitrator_vote(env, trade_id, &arbitrator) {
+            votes.push_back(vote);
+        }
+    }
+    votes
+}
+
+pub fn clear_votes_for_trade(env: &Env, trade_id: u64, arbitrators: &Vec<Address>) {
+    for i in 0..arbitrators.len() {
+        let arbitrator = arbitrators.get(i).unwrap();
+        let key = (MULTISIG_VOTE_PREFIX, trade_id, &arbitrator);
+        env.storage().persistent().remove(&key);
+    }
 }
 
 // Pause state

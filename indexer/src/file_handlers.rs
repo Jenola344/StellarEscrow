@@ -20,8 +20,7 @@ pub async fn upload_file(
     State(storage): State<Arc<StorageService>>,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, AppError> {
-    let category = FileCategory::from_str(&category_str)
-        .ok_or(AppError::InvalidFileCategory)?;
+    let category = FileCategory::from_str(&category_str).ok_or(AppError::InvalidFileCategory)?;
 
     let mut file_data: Option<Bytes> = None;
     let mut original_name = String::from("upload");
@@ -29,9 +28,11 @@ pub async fn upload_file(
     let mut owner_id = String::new();
     let mut trade_id: Option<i64> = None;
 
-    while let Some(field) = multipart.next_field().await.map_err(|e| {
-        AppError::Storage(format!("Multipart error: {e}"))
-    })? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::Storage(format!("Multipart error: {e}")))?
+    {
         match field.name() {
             Some("file") => {
                 if let Some(fname) = field.file_name() {
@@ -40,14 +41,16 @@ pub async fn upload_file(
                 if let Some(ct) = field.content_type() {
                     mime_type = ct.to_string();
                 }
-                file_data = Some(field.bytes().await.map_err(|e| {
-                    AppError::Storage(format!("Failed to read field bytes: {e}"))
-                })?);
+                file_data =
+                    Some(field.bytes().await.map_err(|e| {
+                        AppError::Storage(format!("Failed to read field bytes: {e}"))
+                    })?);
             }
             Some("owner_id") => {
-                owner_id = field.text().await.map_err(|e| {
-                    AppError::Storage(format!("Failed to read owner_id: {e}"))
-                })?;
+                owner_id = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::Storage(format!("Failed to read owner_id: {e}")))?;
             }
             Some("trade_id") => {
                 let raw = field.text().await.unwrap_or_default();
@@ -63,7 +66,14 @@ pub async fn upload_file(
     let data = file_data.ok_or_else(|| AppError::Storage("No file field in request".into()))?;
 
     let record = storage
-        .upload(&owner_id, category, &original_name, &mime_type, data, trade_id)
+        .upload(
+            &owner_id,
+            category,
+            &original_name,
+            &mime_type,
+            data,
+            trade_id,
+        )
         .await?;
 
     Ok((StatusCode::CREATED, Json(json!({ "file": record }))))
@@ -75,10 +85,7 @@ pub async fn download_file(
     Query(params): Query<std::collections::HashMap<String, String>>,
     State(storage): State<Arc<StorageService>>,
 ) -> Result<Response, AppError> {
-    let requester_id = params
-        .get("requester_id")
-        .cloned()
-        .unwrap_or_default();
+    let requester_id = params.get("requester_id").cloned().unwrap_or_default();
 
     let (record, data) = storage.download(file_id, &requester_id).await?;
 
@@ -102,10 +109,7 @@ pub async fn delete_file(
     Query(params): Query<std::collections::HashMap<String, String>>,
     State(storage): State<Arc<StorageService>>,
 ) -> Result<impl IntoResponse, AppError> {
-    let requester_id = params
-        .get("requester_id")
-        .cloned()
-        .unwrap_or_default();
+    let requester_id = params.get("requester_id").cloned().unwrap_or_default();
 
     storage.delete(file_id, &requester_id).await?;
     Ok(Json(json!({ "deleted": file_id })))

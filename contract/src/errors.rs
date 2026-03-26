@@ -83,4 +83,15 @@ pub enum ContractError {
     AmmInsufficientShares = 52,
     AmmInvalidPair = 53,
     AmmPoolAlreadyExists = 54,
+    // Upgrade system errors (60–66)
+    /// An upgrade is already in progress (guard is set).
+    UpgradeInProgress = 60,
+    /// No upgrade proposal exists to execute or cancel.
+    NoUpgradeProposal = 61,
+    /// Timelock has not yet expired; upgrade cannot be executed yet.
+    UpgradeTimelockActive = 62,
+    /// No upgrade guard is set; migrate/rollback called out of sequence.
+    NoUpgradeInProgress = 63,
+    /// Rollback window has passed; state cannot be reverted automatically.
+    RollbackWindowExpired = 64,
 }

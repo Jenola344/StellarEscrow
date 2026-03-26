@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc, Duration};
 use crate::models::{Event, TradeCreatedData};
+use chrono::{DateTime, Duration, Utc};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,9 +31,14 @@ impl RuleEngine {
         }
     }
 
-    pub fn check_velocity(&self, recent_events: &[Event], current_addr: &str) -> Option<RuleResult> {
+    pub fn check_velocity(
+        &self,
+        recent_events: &[Event],
+        current_addr: &str,
+    ) -> Option<RuleResult> {
         let one_hour_ago = Utc::now() - Duration::hours(1);
-        let count = recent_events.iter()
+        let count = recent_events
+            .iter()
             .filter(|e| e.timestamp > one_hour_ago)
             .filter(|e| {
                 if let Ok(data) = serde_json::from_value::<TradeCreatedData>(e.data.clone()) {
@@ -48,7 +53,10 @@ impl RuleEngine {
             Some(RuleResult {
                 rule_name: "High Velocity".to_string(),
                 score: 40,
-                description: format!("Address {} has created {} trades in the last hour.", current_addr, count),
+                description: format!(
+                    "Address {} has created {} trades in the last hour.",
+                    current_addr, count
+                ),
             })
         } else {
             None
@@ -60,20 +68,29 @@ impl RuleEngine {
             Some(RuleResult {
                 rule_name: "Large Amount Outlier".to_string(),
                 score: 30,
-                description: format!("Transaction amount {} is significantly higher than the average {}.", amount, avg_amount),
+                description: format!(
+                    "Transaction amount {} is significantly higher than the average {}.",
+                    amount, avg_amount
+                ),
             })
         } else {
             None
         }
     }
 
-    pub fn check_linked_accounts(&self, recent_events: &[Event], current_addr: &str, counterparty: &str) -> Option<RuleResult> {
+    pub fn check_linked_accounts(
+        &self,
+        recent_events: &[Event],
+        current_addr: &str,
+        counterparty: &str,
+    ) -> Option<RuleResult> {
         // Detect if the seller and buyer have many small transactions between them or share a common third party
-        let common_count = recent_events.iter()
+        let common_count = recent_events
+            .iter()
             .filter(|e| {
                 if let Ok(data) = serde_json::from_value::<TradeCreatedData>(e.data.clone()) {
-                    (data.seller == current_addr && data.buyer == counterparty) ||
-                    (data.seller == counterparty && data.buyer == current_addr)
+                    (data.seller == current_addr && data.buyer == counterparty)
+                        || (data.seller == counterparty && data.buyer == current_addr)
                 } else {
                     false
                 }
@@ -84,7 +101,10 @@ impl RuleEngine {
             Some(RuleResult {
                 rule_name: "Linked Account Pattern".to_string(),
                 score: 50,
-                description: format!("Frequent interaction ({} trades) between {} and {} suggests linked accounts.", common_count, current_addr, counterparty),
+                description: format!(
+                    "Frequent interaction ({} trades) between {} and {} suggests linked accounts.",
+                    common_count, current_addr, counterparty
+                ),
             })
         } else {
             None
@@ -97,7 +117,10 @@ impl RuleEngine {
             Some(RuleResult {
                 rule_name: "High Fee/Slippage".to_string(),
                 score: 30,
-                description: format!("Fee {} is over 10% of trade amount {}. Potential slippage manipulation.", fee, amount),
+                description: format!(
+                    "Fee {} is over 10% of trade amount {}. Potential slippage manipulation.",
+                    fee, amount
+                ),
             })
         } else {
             None

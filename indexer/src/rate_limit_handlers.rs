@@ -62,11 +62,10 @@ pub async fn rate_limit_middleware(
 }
 
 fn set_header(headers: &mut axum::http::HeaderMap, name: &'static str, value: u64) {
-    if let (Ok(n), Ok(v)) = (
-        HeaderName::from_static(name),
-        HeaderValue::from_str(&value.to_string()),
-    ) {
-        headers.insert(n, v);
+    if let Ok(v) = HeaderValue::from_str(&value.to_string()) {
+        if let Ok(n) = axum::http::HeaderName::from_bytes(name.as_bytes()) {
+            headers.insert(n, v);
+        }
     }
 }
 
@@ -75,9 +74,7 @@ fn set_header(headers: &mut axum::http::HeaderMap, name: &'static str, value: u6
 // ---------------------------------------------------------------------------
 
 /// GET /admin/rate-limits — monitoring snapshot
-pub async fn get_rate_limit_stats(
-    State(limiter): State<Arc<RateLimiter>>,
-) -> impl IntoResponse {
+pub async fn get_rate_limit_stats(State(limiter): State<Arc<RateLimiter>>) -> impl IntoResponse {
     Json(limiter.snapshot().await)
 }
 

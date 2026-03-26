@@ -1,21 +1,21 @@
 //! API Gateway Module
-//! 
+//!
 //! This module provides a centralized API gateway layer that handles:
 //! - Request routing to appropriate services/endpoints
 //! - Load balancing across service instances (round-robin)
 //! - Authentication and authorization
 //! - Request/response transformation
 //! - Error handling and standardization
-//! 
+//!
 //! ## Architecture
-//! 
+//!
 //! The gateway sits in front of all backend services and provides a unified
 //! entry point for all API requests. It uses middleware-based routing to
 //! direct requests to the appropriate handlers while applying cross-cutting
 //! concerns like auth, rate limiting, and logging.
-//! 
+//!
 //! ## Routing Rules
-//! 
+//!
 //! - `/health*` → Health check endpoints (public)
 //! - `/api/v1/*` → Versioned API endpoints (authenticated)
 //! - `/events*` → Event querying and replay (authenticated)
@@ -99,13 +99,17 @@ impl GatewayState {
         if self.config.service_instances.is_empty() {
             return None;
         }
-        let idx = self.rr_counter.fetch_add(1, Ordering::Relaxed) % self.config.service_instances.len();
+        let idx =
+            self.rr_counter.fetch_add(1, Ordering::Relaxed) % self.config.service_instances.len();
         Some(self.config.service_instances[idx].clone())
     }
 
     /// Record route access for statistics
     pub fn record_route(&self, route: &str) {
-        let stats = self.route_stats.entry(route.to_string()).or_insert_with(|| AtomicUsize::new(0));
+        let stats = self
+            .route_stats
+            .entry(route.to_string())
+            .or_insert_with(|| AtomicUsize::new(0));
         stats.fetch_add(1, Ordering::Relaxed);
     }
 }
@@ -122,18 +126,10 @@ pub enum GatewayError {
 impl IntoResponse for GatewayError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
-            GatewayError::ServiceUnavailable(msg) => {
-                (StatusCode::SERVICE_UNAVAILABLE, msg)
-            }
-            GatewayError::Unauthorized(msg) => {
-                (StatusCode::UNAUTHORIZED, msg)
-            }
-            GatewayError::NotFound(msg) => {
-                (StatusCode::NOT_FOUND, msg)
-            }
-            GatewayError::InternalError(msg) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, msg)
-            }
+            GatewayError::ServiceUnavailable(msg) => (StatusCode::SERVICE_UNAVAILABLE, msg),
+            GatewayError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg),
+            GatewayError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
+            GatewayError::InternalError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
         };
 
         let body = Json(json!({
@@ -205,10 +201,9 @@ pub async fn gateway_middleware(
 
     // Add gateway headers to response
     let mut response = next.run(req).await;
-    response.headers_mut().insert(
-        "X-Gateway-Version",
-        "1.0.0".parse().unwrap(),
-    );
+    response
+        .headers_mut()
+        .insert("X-Gateway-Version", "1.0.0".parse().unwrap());
 
     response
 }
@@ -228,7 +223,9 @@ fn is_public_path(path: &str) -> bool {
         "/api/v1/docs",
     ];
 
-    PUBLIC_PATHS.iter().any(|p| path == *p || path.starts_with(&format!("{}/", p)))
+    PUBLIC_PATHS
+        .iter()
+        .any(|p| path == *p || path.starts_with(&format!("{}/", p)))
 }
 
 /// Validate API key from request headers
@@ -252,8 +249,9 @@ fn validate_api_key(
         }
     } else {
         // Regular routes accept any valid API key
-        if auth_config.api_keys.iter().any(|ak| ak == &api_key) 
-            || auth_config.admin_keys.iter().any(|ak| ak == &api_key) {
+        if auth_config.api_keys.iter().any(|ak| ak == &api_key)
+            || auth_config.admin_keys.iter().any(|ak| ak == &api_key)
+        {
             Ok(())
         } else {
             Err(GatewayError::Unauthorized("Invalid API key".to_string()))
@@ -286,10 +284,7 @@ fn extract_api_key(req: &Request<Body>) -> Result<String, GatewayError> {
 }
 
 /// Transform response to standard format if enabled
-pub fn transform_response<T: serde::Serialize>(
-    data: T,
-    transform: bool,
-) -> StandardResponse<T> {
+pub fn transform_response<T: serde::Serialize>(data: T, transform: bool) -> StandardResponse<T> {
     if transform {
         StandardResponse::success(data)
     } else {
@@ -374,9 +369,21 @@ mod tests {
         let state = GatewayState::new(config, auth_config);
 
         // Test round-robin distribution
-        assert_eq!(state.get_next_instance(), Some("http://service1:8080".to_string()));
-        assert_eq!(state.get_next_instance(), Some("http://service2:8080".to_string()));
-        assert_eq!(state.get_next_instance(), Some("http://service3:8080".to_string()));
-        assert_eq!(state.get_next_instance(), Some("http://service1:8080".to_string()));
+        assert_eq!(
+            state.get_next_instance(),
+            Some("http://service1:8080".to_string())
+        );
+        assert_eq!(
+            state.get_next_instance(),
+            Some("http://service2:8080".to_string())
+        );
+        assert_eq!(
+            state.get_next_instance(),
+            Some("http://service3:8080".to_string())
+        );
+        assert_eq!(
+            state.get_next_instance(),
+            Some("http://service1:8080".to_string())
+        );
     }
 }

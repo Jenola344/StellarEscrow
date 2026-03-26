@@ -59,6 +59,55 @@ pub enum DisputeResolution {
     Partial { buyer_bps: u32 },
 }
 
+// ---------------------------------------------------------------------------
+// Multi-Signature Arbitration
+// ---------------------------------------------------------------------------
+
+/// Configuration for multi-signature arbitration on high-value trades
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MultiSigConfig {
+    /// List of arbitrators assigned to this trade
+    pub arbitrators: Vec<Address>,
+    /// Number of votes required to reach consensus (threshold)
+    pub threshold: u32,
+    /// Timeout in seconds after dispute is raised when voting expires
+    pub voting_timeout_seconds: u64,
+    /// Ledger timestamp when voting started (set when dispute is raised)
+    pub voting_started_at: Option<u64>,
+}
+
+/// Individual arbitrator vote on a dispute resolution
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ArbitratorVote {
+    pub arbitrator: Address,
+    pub resolution: DisputeResolution,
+    pub timestamp: u64,
+}
+
+/// Summary of current voting state for a multi-sig dispute
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VotingSummary {
+    pub total_arbitrators: u32,
+    pub votes_cast: u32,
+    pub threshold: u32,
+    pub consensus_resolution: Option<DisputeResolution>,
+    pub has_consensus: bool,
+    pub voting_expired: bool,
+}
+
+/// Arbitration configuration for a trade (single or multi-signature)
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ArbitrationConfig {
+    /// Single arbitrator (existing behavior)
+    Single(Address),
+    /// Multi-signature arbitration for high-value trades
+    MultiSig(MultiSigConfig),
+}
+
 /// A single metadata key-value entry
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -90,7 +139,7 @@ pub struct Trade {
     pub buyer: Address,
     pub amount: u64,
     pub fee: u64,
-    pub arbitrator: Option<Address>,
+    pub arbitrator: Option<ArbitrationConfig>,
     pub status: TradeStatus,
     /// Optional Unix timestamp (seconds) after which funds auto-release to seller
     /// if no dispute has been raised. Uses Stellar ledger time (UTC).
