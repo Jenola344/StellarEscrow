@@ -18,5 +18,17 @@ elevated_rpm = 300
 admin_rpm = 6000
 # whitelist = ["127.0.0.1"]
 # blacklist = []
+
+[auth]
+# API keys for authentication
+api_keys = ["demo-key-123", "client-key-456"]
+admin_keys = ["admin-key-123", "admin-key-789"]
+
 [storage]
 base_dir = "./uploads"
+
+[gateway]
+# Optional: Configure service instances for load balancing
+# Leave empty to run as standalone (default)
+# Example: service_instances = ["http://localhost:3001", "http://localhost:3002"]
+# service_instances = []

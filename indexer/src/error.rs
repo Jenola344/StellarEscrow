@@ -35,8 +35,6 @@ pub enum AppError {
     #[error("Rate limit exceeded")]
     RateLimited,
 
-    #[error("Forbidden: {0}")]
-    Forbidden(String),
     #[error("File not found")]
     FileNotFound,
 
@@ -49,7 +47,7 @@ pub enum AppError {
     #[error("Invalid file category")]
     InvalidFileCategory,
 
-    #[error("Access denied: {0}")]
+    #[error("Forbidden: {0}")]
     Forbidden(String),
 
     #[error("Storage error: {0}")]
@@ -58,22 +56,6 @@ pub enum AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, error_message) = match self {
-            AppError::Database(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error"),
-            AppError::StellarSdk(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Stellar network error"),
-            AppError::Serialization(_) => (StatusCode::BAD_REQUEST, "Invalid data format"),
-            AppError::HttpClient(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Network error"),
-            AppError::InvalidEventData(_) => (StatusCode::BAD_REQUEST, "Invalid event data"),
-            AppError::EventNotFound => (StatusCode::NOT_FOUND, "Event not found"),
-            AppError::InternalServerError => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error"),
-            AppError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded"),
-            AppError::Forbidden(_) => (StatusCode::FORBIDDEN, "Forbidden"),
-            AppError::FileNotFound => (StatusCode::NOT_FOUND, "File not found"),
-            AppError::FileTooLarge(_) => (StatusCode::PAYLOAD_TOO_LARGE, "File too large"),
-            AppError::InvalidMimeType(_) => (StatusCode::UNSUPPORTED_MEDIA_TYPE, "Unsupported file type"),
-            AppError::InvalidFileCategory => (StatusCode::BAD_REQUEST, "Invalid file category"),
-            AppError::Forbidden(_) => (StatusCode::FORBIDDEN, "Access denied"),
-            AppError::Storage(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Storage error"),
         let (status, code, message) = match &self {
             AppError::Database(_) => (StatusCode::INTERNAL_SERVER_ERROR, "DATABASE_ERROR", "Database error"),
             AppError::StellarSdk(_) => (StatusCode::INTERNAL_SERVER_ERROR, "STELLAR_ERROR", "Stellar network error"),
@@ -83,6 +65,13 @@ impl IntoResponse for AppError {
             AppError::EventNotFound => (StatusCode::NOT_FOUND, "EVENT_NOT_FOUND", "Event not found"),
             AppError::NotFound(_) => (StatusCode::NOT_FOUND, "NOT_FOUND", "Resource not found"),
             AppError::InternalServerError => (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Internal server error"),
+            AppError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "RATE_LIMITED", "Rate limit exceeded"),
+            AppError::Forbidden(_) => (StatusCode::FORBIDDEN, "FORBIDDEN", "Access denied"),
+            AppError::FileNotFound => (StatusCode::NOT_FOUND, "FILE_NOT_FOUND", "File not found"),
+            AppError::FileTooLarge(_) => (StatusCode::PAYLOAD_TOO_LARGE, "FILE_TOO_LARGE", "File too large"),
+            AppError::InvalidMimeType(_) => (StatusCode::UNSUPPORTED_MEDIA_TYPE, "INVALID_MIME_TYPE", "Unsupported file type"),
+            AppError::InvalidFileCategory => (StatusCode::BAD_REQUEST, "INVALID_FILE_CATEGORY", "Invalid file category"),
+            AppError::Storage(_) => (StatusCode::INTERNAL_SERVER_ERROR, "STORAGE_ERROR", "Storage error"),
         };
 
         let detail = self.to_string();

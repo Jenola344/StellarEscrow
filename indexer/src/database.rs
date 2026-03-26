@@ -42,45 +42,44 @@ impl Database {
     }
 
     pub async fn get_events(&self, query: &EventQuery) -> Result<Vec<Event>, AppError> {
-        let mut sql = "SELECT id, event_type, contract_id, ledger, transaction_hash, timestamp, data, created_at FROM events WHERE 1=1".to_string();
-        let mut bindings = vec![];
-
-        if let Some(event_type) = &query.event_type {
-            sql.push_str(&format!(" AND event_type = ${}", bindings.len() + 1));
-            bindings.push(event_type.as_str());
+        let mut sql = String::from("SELECT id, event_type, contract_id, ledger, transaction_hash, timestamp, data, created_at FROM events WHERE 1=1");
+        
+        // Add conditions and collect owned String values
+        let mut params: Vec<String> = Vec::new();
+        
+        if let Some(ref event_type) = query.event_type {
+            sql.push_str(&format!(" AND event_type = ${}", params.len() + 1));
+            params.push(event_type.clone());
         }
-
+        
         if let Some(trade_id) = query.trade_id {
-            sql.push_str(&format!(" AND data->>'trade_id' = ${}", bindings.len() + 1));
-            bindings.push(&trade_id.to_string());
+            sql.push_str(&format!(" AND (data->>'trade_id')::BIGINT = ${}", params.len() + 1));
+            params.push(trade_id.to_string());
         }
-
+        
         if let Some(from_ledger) = query.from_ledger {
-            sql.push_str(&format!(" AND ledger >= ${}", bindings.len() + 1));
-            bindings.push(&from_ledger.to_string());
+            sql.push_str(&format!(" AND ledger >= ${}", params.len() + 1));
+            params.push(from_ledger.to_string());
         }
-
+        
         if let Some(to_ledger) = query.to_ledger {
-            sql.push_str(&format!(" AND ledger <= ${}", bindings.len() + 1));
-            bindings.push(&to_ledger.to_string());
+            sql.push_str(&format!(" AND ledger <= ${}", params.len() + 1));
+            params.push(to_ledger.to_string());
         }
-
-        sql.push_str(" ORDER BY ledger DESC, timestamp DESC");
-
+        
         if let Some(limit) = query.limit {
             sql.push_str(&format!(" LIMIT {}", limit));
         }
-
+        
         if let Some(offset) = query.offset {
             sql.push_str(&format!(" OFFSET {}", offset));
         }
-
-        let mut query_builder = sqlx::query(&sql);
-
-        for binding in bindings {
-            query_builder = query_builder.bind(binding);
+        
+        let mut query_builder = sqlx::query_as::<_, Event>(&sql);
+        for param in params {
+            query_builder = query_builder.bind(param);
         }
-
+        
         let rows = query_builder.fetch_all(&self.pool).await?;
 
         let events = rows
@@ -195,7 +194,6 @@ impl Database {
 
         Ok(events)
     }
-}
 
     /// Total number of indexed events, optionally filtered by contract.
     pub async fn get_event_count(&self, contract_id: Option<&str>) -> Result<i64, AppError> {
@@ -234,7 +232,6 @@ impl Database {
 
         Ok(row.map(|r| (r.get::<i64, _>("ledger"), r.get::<DateTime<Utc>, _>("timestamp"))))
     }
-}
 
     pub async fn record_search(&self, query_text: &str, search_type: &str) -> Result<(), AppError> {
         sqlx::query(
@@ -621,6 +618,30 @@ impl Database {
 
         let top_actors = sqlx::query_as::<_, AuditBucket>(
             "SELECT actor AS label, COUNT(*)::BIGINT AS count FROM audit_logs GROUP BY actor ORDER BY count DESC LIMIT 20",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let top_actions = sqlx::query_as::<_, AuditBucket>(
+            "SELECT action AS label, COUNT(*)::BIGINT AS count FROM audit_logs GROUP BY action ORDER BY count DESC LIMIT 20",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(AuditStats { total, by_category, by_outcome, by_severity, top_actors, top_actions })
+    }
+
+    /// Delete audit logs older than `days` days. Returns the number of rows deleted.
+    pub async fn purge_old_audit_logs(&self, days: i64) -> Result<u64, AppError> {
+        let result = sqlx::query(
+            "DELETE FROM audit_logs WHERE created_at < NOW() - ($1 || ' days')::INTERVAL",
+        )
+        .bind(days)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     pub async fn insert_fraud_alert(&self, report: &FraudReport) -> Result<(), AppError> {
         let rules_json = serde_json::to_value(&report.rules_triggered).unwrap_or(serde_json::Value::Null);
         let status = if report.risk_score >= 80 { "pending" } else { "approved" };
@@ -670,26 +691,6 @@ impl Database {
         .fetch_all(&self.pool)
         .await?;
 
-        let top_actions = sqlx::query_as::<_, AuditBucket>(
-            "SELECT action AS label, COUNT(*)::BIGINT AS count FROM audit_logs GROUP BY action ORDER BY count DESC LIMIT 20",
-        )
-        .fetch_all(&self.pool)
-        .await?;
-
-        Ok(AuditStats { total, by_category, by_outcome, by_severity, top_actors, top_actions })
-    }
-
-    /// Delete audit logs older than `days` days. Returns the number of rows deleted.
-    pub async fn purge_old_audit_logs(&self, days: i64) -> Result<u64, AppError> {
-        let result = sqlx::query(
-            "DELETE FROM audit_logs WHERE created_at < NOW() - ($1 || ' days')::INTERVAL",
-        )
-        .bind(days)
-        .execute(&self.pool)
-        .await?;
-        Ok(result.rows_affected())
-    }
-}
         let mut alerts = Vec::new();
         for row in rows {
             alerts.push(serde_json::json!({

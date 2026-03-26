@@ -23,6 +23,7 @@ mod database;
 mod error;
 mod event_monitor;
 mod file_handlers;
+mod gateway;
 mod handlers;
 mod health;
 mod help;
@@ -41,6 +42,7 @@ use config::Config;
 use database::Database;
 use event_monitor::EventMonitor;
 use auth::auth_middleware;
+use gateway::{GatewayConfig, GatewayState};
 use handlers::{AppState, *};
 use health::{alerts, liveness, metrics, readiness, status_page, HealthMonitor, HealthState};
 use file_handlers::{delete_file, download_file, list_files, upload_file};
@@ -104,8 +106,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize rate limiter
     let rate_limiter = Arc::new(RateLimiter::new(config.rate_limit.clone()));
+    
     // Initialize API auth config
     let auth_config = Arc::new(config.auth.clone());
+    
+    // Initialize API gateway configuration
+    // Gateway provides centralized routing, load balancing, and authentication
+    let gateway_config = GatewayConfig {
+        load_balancing_enabled: !config.gateway.service_instances.is_empty(),
+        service_instances: config.gateway.service_instances.clone(),
+        request_logging: true,
+        transform_responses: true,
+    };
+    let gateway_state = Arc::new(GatewayState::new(gateway_config, auth_config.clone()));
+    
     // Initialize file storage service
     let storage_service = Arc::new(
         StorageService::new(db_pool, &config.storage.base_dir).await?,
@@ -148,10 +162,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/files/:id", get(download_file).delete(delete_file))
         .with_state(storage_service);
 
-    // Versioned API router (v1)
+    // Versioned API router (v1) - includes gateway-enhanced endpoints
     let v1_api = Router::new()
         .route("/", get(api_index))
         .route("/docs", get(api_docs))
+        .route("/gateway/stats", get(gateway_stats))
         .route("/events", get(get_events))
         .route("/events/:id", get(get_event_by_id))
         .route("/events/trade/:trade_id", get(get_events_by_trade_id))
@@ -217,8 +232,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             health: health_state,
             fraud_service,
             notification_service,
+            gateway: gateway_state.clone(),
         })
-        .layer(middleware::from_fn_with_state(auth_config, auth_middleware))
+        // Apply gateway middleware for centralized routing and auth
+        .layer(middleware::from_fn_with_state(gateway_state.clone(), gateway::gateway_middleware))
+        // Apply rate limiting middleware
         .layer(middleware::from_fn_with_state(rate_limiter, rate_limit_middleware))
         .layer(CorsLayer::permissive());
 

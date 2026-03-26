@@ -157,6 +157,8 @@ pub struct EventStats {
 pub struct StatsResponse {
     pub total_events: i64,
     pub by_type: Vec<EventStats>,
+}
+
 // ---- File storage models ----
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

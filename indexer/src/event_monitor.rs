@@ -3,6 +3,7 @@ use futures::stream::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -58,7 +59,7 @@ pub struct EventMonitor {
     database: Arc<Database>,
     ws_manager: Arc<WebSocketManager>,
     client: Client,
-    last_ledger: Option<i64>,
+    last_ledger: RwLock<Option<i64>>,
     fraud_service: Arc<FraudDetectionService>,
     notification_service: Arc<crate::notification_service::NotificationService>,
 }
@@ -71,6 +72,7 @@ impl EventMonitor {
         fraud_service: Arc<FraudDetectionService>,
         notification_service: Arc<crate::notification_service::NotificationService>,
     ) -> Self {
+        let start_ledger = config.start_ledger;
         Self {
             config,
             database,
@@ -78,7 +80,7 @@ impl EventMonitor {
             fraud_service,
             notification_service,
             client: Client::new(),
-            last_ledger: config.start_ledger.map(|l| l as i64),
+            last_ledger: RwLock::new(start_ledger.map(|l| l as i64)),
         }
     }
 
@@ -86,11 +88,11 @@ impl EventMonitor {
         info!("Starting event monitor for contract {}", self.config.contract_id);
 
         // Get the latest ledger from database if not specified in config
-        if self.last_ledger.is_none() {
+        if self.last_ledger.read().await.is_none() {
             match self.database.get_latest_ledger(&self.config.contract_id).await? {
                 Some(ledger) => {
                     info!("Resuming from ledger {}", ledger);
-                    self.last_ledger = Some(ledger);
+                    *self.last_ledger.write().await = Some(ledger);
                 }
                 None => {
                     warn!("No previous events found, starting from latest ledger");
@@ -164,7 +166,7 @@ impl EventMonitor {
             }
         }
 
-        self.last_ledger = Some(latest_ledger);
+        *self.last_ledger.write().await = Some(latest_ledger);
         Ok(())
     }
 
@@ -190,13 +192,15 @@ impl EventMonitor {
 
             let response: HorizonResponse<Effect> = self.client.get(&url).send().await?.json().await?;
 
+            // Get the last record before moving records
+            let last_id = response._embedded.records.last().map(|r| r.id.clone());
             all_effects.extend(response._embedded.records);
 
             if response._links.next.is_none() {
                 break;
             }
 
-            cursor = Some(response._embedded.records.last().unwrap().id.clone());
+            cursor = last_id;
         }
 
         Ok(all_effects)

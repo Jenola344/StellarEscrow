@@ -2,32 +2,22 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::{Json, Response},
-    response::Json,
-    response::Response,
 };
 use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::error::AppError;
+use crate::fraud_service::FraudDetectionService;
 use crate::health::HealthState;
 use crate::models::{
-    Event, EventQuery, EventStats, IndexerStatus, PaginatedResponse, ReplayRequest, StatsResponse,
+    AuditQuery, DiscoveryQuery, Event, EventQuery, EventStats, GlobalSearchQuery, GlobalSearchResponse,
+    HistoryQuery, IndexerStatus, NewAuditLog, PaginatedResponse, PagedResponse, ReplayRequest,
+    RetentionRequest, RetentionResponse, StatsResponse, SuggestionQuery, TradeSearchQuery,
     WebSocketMessage,
 };
-use crate::websocket::WebSocketManager;
 use crate::database::Database;
-use crate::models::{EventQuery, PagedResponse, ReplayRequest, WebSocketMessage};
-use crate::models::{
-    AuditQuery, DiscoveryQuery, Event, EventQuery, GlobalSearchQuery, GlobalSearchResponse,
-    HistoryQuery, NewAuditLog, PagedResponse, ReplayRequest, RetentionRequest, RetentionResponse,
-    SuggestionQuery, TradeSearchQuery, WebSocketMessage,
-};
 use crate::websocket::WebSocketManager;
-use crate::database::Database;
-use crate::{database::Database, models::Event, models::PagedResponse};
-use crate::fraud_service::FraudDetectionService;
-use crate::{database::Database, models::Event};
 
 /// Default page size — kept small for mobile clients.
 const DEFAULT_LIMIT: i64 = 20;
@@ -48,23 +38,23 @@ pub async fn api_index() -> Json<serde_json::Value> {
             "event_by_id":     "GET  /events/:id",
             "events_by_trade": "GET  /events/trade/:trade_id",
             "events_by_type":  "GET  /events/type/:event_type",
-            "replay":          "POST /events/replay  {from_ledger, to_ledger?}",
+            "replay":          "POST /events/replay",
             "websocket":       "GET  /ws",
             "help":            "GET  /help",
-            "audit_ingest":    "POST /audit  {actor, category, action, outcome, ...}",
-            "audit_query":     "GET  /audit?actor=&category=&action=&outcome=&severity=&from=&to=&limit=&offset=",
+            "audit_ingest":    "POST /audit",
+            "audit_query":     "GET  /audit",
             "audit_stats":     "GET  /audit/stats",
-            "audit_purge":     "DELETE /audit/purge  {older_than_days?}"
-            "search":          "GET  /search?q=&limit=",
-            "search_trades":   "GET  /search/trades?q=&status=&seller=&buyer=&min_amount=&max_amount=&limit=&offset=",
-            "search_discovery":"GET  /search/discovery?q=&role=&limit=",
-            "search_suggestions":"GET /search/suggestions?q=&limit=",
-            "search_history":  "GET  /search/history?limit=",
-            "search_analytics":"GET  /search/analytics?from=&to=&search_type=",
-            "fraud_review":    "POST /fraud/review  {trade_id, status, reviewer, notes}",
+            "audit_purge":     "DELETE /audit/purge",
+            "search":          "GET  /search",
+            "search_trades":   "GET  /search/trades",
+            "search_discovery":"GET  /search/discovery",
+            "search_suggestions":"GET /search/suggestions",
+            "search_history":  "GET  /search/history",
+            "search_analytics":"GET  /search/analytics",
+            "fraud_review":    "POST /fraud/review",
             "notif_prefs_get": "GET  /notifications/preferences/:address",
-            "notif_prefs_put": "PUT  /notifications/preferences/:address  {email_enabled, email_address, sms_enabled, phone_number, push_enabled, push_token, on_*}",
-            "notif_log":       "GET  /notifications/log/:address?limit=",
+            "notif_prefs_put": "PUT  /notifications/preferences/:address",
+            "notif_log":       "GET  /notifications/log/:address",
             "help":            "GET  /help"
         }
     }))
@@ -108,14 +98,6 @@ pub async fn get_events(
         limit,
         offset,
     }))
-}
-
-pub async fn get_event_by_id(
-    Path(id): Path<Uuid>,
-    State(state): State<AppState>,
-) -> Result<Json<Event>, AppError> {
-    let event = state.database.get_event_by_id(id).await?;
-    Ok(Json(event))
 }
 
 pub async fn get_event_by_id(
@@ -224,6 +206,8 @@ pub async fn get_stats(
         .collect();
 
     Ok(Json(StatsResponse { total_events, by_type }))
+}
+
 pub async fn global_search(
     Query(params): Query<GlobalSearchQuery>,
     State(state): State<AppState>,
@@ -357,7 +341,8 @@ pub struct AppState {
     pub ws_manager: Arc<WebSocketManager>,
     pub health: HealthState,
     pub fraud_service: Arc<FraudDetectionService>,
-    pub notification_service: Arc<NotificationService>,
+    pub notification_service: Arc<crate::notification_service::NotificationService>,
+    pub gateway: Arc<crate::gateway::GatewayState>,
 }
 
 // =============================================================================
@@ -446,4 +431,18 @@ pub async fn get_notification_log(
 ) -> Result<Json<Vec<crate::models::NotificationLogEntry>>, AppError> {
     let entries = state.database.get_notification_log(&address, params.limit.unwrap_or(50)).await?;
     Ok(Json(entries))
+}
+
+// =============================================================================
+// Gateway Handlers
+// =============================================================================
+
+/// GET /api/v1/gateway/stats - Return gateway statistics and status
+pub async fn gateway_stats(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let stats = crate::gateway::get_gateway_stats(&state.gateway);
+    Ok(Json(serde_json::to_value(stats).map_err(|e| {
+        AppError::Internal(format!("Failed to serialize gateway stats: {}", e))
+    })?))
 }

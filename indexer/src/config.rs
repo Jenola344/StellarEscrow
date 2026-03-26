@@ -8,9 +8,12 @@ pub struct Config {
     pub database: DatabaseConfig,
     pub stellar: StellarConfig,
     pub rate_limit: RateLimitConfig,
+    pub auth: AuthConfig,
     pub storage: StorageConfig,
     #[serde(default)]
     pub notification: NotificationConfig,
+    #[serde(default)]
+    pub gateway: GatewayConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,6 +84,22 @@ pub struct NotificationConfig {
     pub push_server_key: String,
 }
 
+/// Gateway configuration for API routing and load balancing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GatewayConfig {
+    /// Service instances for load balancing (host:port format)
+    #[serde(default)]
+    pub service_instances: Vec<String>,
+}
+
+impl Default for GatewayConfig {
+    fn default() -> Self {
+        Self {
+            service_instances: vec![],
+        }
+    }
+}
+
 impl Config {
     pub fn load(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let contents = fs::read_to_string(path)?;
@@ -129,6 +148,7 @@ impl Default for Config {
                 push_project_id: String::new(),
                 push_server_key: String::new(),
             },
+            gateway: GatewayConfig::default(),
         }
     }
 }
