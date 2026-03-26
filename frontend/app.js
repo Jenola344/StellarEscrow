@@ -8,6 +8,7 @@ import { setLocale, getLocale, formatCurrency, formatDate } from './i18n.js';
 import { registerServiceWorker, initOfflineIndicator, promptInstall, isInstallable, subscribePush } from './pwa.js';
 import { observeWebVitals, initLazyRoutes, prefetchOnIdle, cachedFetch, invalidateCache } from './performance.js';
 import { initErrorBoundary, reportError, friendlyMessage, withRetry, showErrorUI, logError } from './error-handler.js';
+import { initCdn } from './cdn.js';
 
 (function() {
     'use strict';
@@ -977,6 +978,9 @@ import { initErrorBoundary, reportError, friendlyMessage, withRetry, showErrorUI
 
         // Error boundary — must be first
         initErrorBoundary();
+
+        // CDN setup — rewrite asset URLs, start monitoring, detect nearest region
+        initCdn().catch((err) => console.warn('[cdn] init failed:', err));
 
         // Performance monitoring
         observeWebVitals();

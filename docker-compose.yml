@@ -20,6 +20,9 @@ services:
       - "3000:3000"
     environment:
       - DATABASE_URL=postgres://indexer:password@postgres:5432/stellar_escrow
+      # CDN cache purge — set these to your CDN provider's purge API
+      - CDN_PURGE_URL=${CDN_PURGE_URL:-}
+      - CDN_PURGE_TOKEN=${CDN_PURGE_TOKEN:-}
     depends_on:
       - postgres
     command: ["./indexer", "--config", "config.toml"]
