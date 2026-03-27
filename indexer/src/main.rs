@@ -209,7 +209,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app = Router::new()
         .route("/", get(api_index))
-        .route("/health", get(liveness))
+        .route("/health", get(health::env_health))
         .route("/health/live", get(liveness))
         .route("/status", get(get_status))
         .route("/stats", get(get_stats))
