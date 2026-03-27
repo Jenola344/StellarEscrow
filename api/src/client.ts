@@ -73,11 +73,16 @@ export class ApiClient {
   }
 
   private parseError(error: AxiosError): ApiError {
+    const details =
+      error.response?.data && typeof error.response.data === 'object'
+        ? (error.response.data as Record<string, any>)
+        : undefined;
+
     return {
       code: error.code || 'UNKNOWN_ERROR',
       message: error.message,
       status: error.response?.status || 0,
-      details: error.response?.data,
+      details,
     };
   }
 

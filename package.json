@@ -7,6 +7,8 @@
     "test": "npm run test --workspaces --if-present",
     "test:coverage": "npm run test:coverage --workspaces --if-present",
     "test:e2e": "npm run test:e2e --workspace=components",
+    "test:security": "npm run test --workspace=security",
+    "test:performance": "npm run test:performance --workspace=api"
     "test:security": "npm run test --workspace=security"
     "test:browser": "playwright test",
     "test:browser:ui": "playwright test --ui",

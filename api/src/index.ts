@@ -94,6 +94,11 @@ export { ApiClient } from './client';
 export { TradesApi, EventsApi, BlockchainApi } from './resources';
 export { loadConfig } from './config';
 export { API_ENDPOINT_CONTRACTS } from './contracts';
+export {
+  PerformanceMonitor,
+  evaluateThresholds,
+  executeScenario,
+} from './performance';
 export type { Trade, Event } from './models';
 export type {
   ApiClientConfig,
@@ -104,3 +109,13 @@ export type {
   RetryConfig,
 } from './types';
 export type { ApiConfig };
+export type {
+  OperationPerformanceSummary,
+  PerformanceAlert,
+  PerformanceError,
+  PerformanceSample,
+  PerformanceScenarioConfig,
+  PerformanceSummary,
+  PerformanceThresholds,
+  ScenarioExecutionContext,
+} from './performance';

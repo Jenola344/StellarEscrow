@@ -10,6 +10,10 @@ This project uses a three-tier testing strategy:
 | Integration | Jest + React Testing Library / MSW | `components/src/**/*.test.tsx`, `api/src/**/*.integration.test.ts` | Component and API behaviour |
 | Contract | Jest + runtime validators | `api/src/**/*.contract.test.ts` | Endpoint method/path/shape guarantees |
 | Load | Jest + concurrent request harness | `api/src/**/*.load.test.ts` | API concurrency smoke coverage |
+| Stress | Jest + performance harness | `api/src/**/*.stress.test.ts` | Burst traffic, retry pressure, and degraded upstream behaviour |
+| Benchmark | Jest + performance harness | `api/src/**/*.benchmark.test.ts` | Endpoint and workflow latency baselines |
+| Scalability | Jest + performance harness | `api/src/**/*.scalability.test.ts` | Throughput and latency trends across concurrency levels |
+| Monitoring | Jest + performance harness | `api/src/**/*.monitoring.test.ts` | Threshold alerts, error-rate visibility, and per-operation telemetry |
 | Security | Jest + scenario harness | `security/src/security.assessment.test.ts` | Penetration tests, vulnerability scans, compliance, monitoring |
 | E2E | Cypress | `components/cypress/e2e/` | Full user flows |
 
@@ -26,6 +30,11 @@ npm run test:coverage
 npm run test:integration --workspace=api
 npm run test:contract --workspace=api
 npm run test:load --workspace=api
+npm run test:stress --workspace=api
+npm run test:benchmark --workspace=api
+npm run test:scalability --workspace=api
+npm run test:monitoring --workspace=api
+npm run test:performance --workspace=api
 npm run test:docs --workspace=api
 
 # Security assessment suite

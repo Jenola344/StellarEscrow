@@ -211,6 +211,11 @@ npm run test:endpoints
 npm run test:integration
 npm run test:contract
 npm run test:load
+npm run test:stress
+npm run test:benchmark
+npm run test:scalability
+npm run test:monitoring
+npm run test:performance
 npm run test:docs
 ```
 
@@ -218,5 +223,39 @@ Tests cover:
 - Unit coverage for interceptors, config loading, retries, and endpoint mapping
 - Integration coverage for mocked HTTP flows across trades, events, and blockchain routes
 - Contract coverage for documented response shapes and endpoint registry drift
-- Load coverage for concurrent request handling under a representative in-memory workload
+- Load coverage for concurrent request handling under representative read/write traffic
+- Stress coverage for burst traffic and retry behaviour under transient failures
+- Benchmark coverage for endpoint and workflow latency baselines
+- Scalability coverage for throughput gains and latency regression checks across concurrency steps
+- Monitoring coverage for threshold alerts, per-operation metrics, and failure visibility
 - Documentation coverage to keep the README endpoint matrix aligned with the shipped client
+
+## Performance Harness
+
+The API package exports a lightweight performance harness for tests and local benchmarking:
+
+```ts
+import { PerformanceMonitor, executeScenario, evaluateThresholds } from '@stellar-escrow/api';
+
+const monitor = new PerformanceMonitor();
+
+const summary = await executeScenario(
+  {
+    name: 'trades-read-path',
+    iterations: 20,
+    concurrency: 5,
+    thresholds: {
+      maxP95LatencyMs: 200,
+      maxErrorRate: 0,
+    },
+  },
+  async (context) => {
+    await context.measure('getTrades', () => api.trades.getTrades(10, context.iteration));
+  },
+  monitor
+);
+
+const alerts = evaluateThresholds(summary, { minThroughputPerSecond: 25 });
+```
+
+`PerformanceMonitor` records per-operation latency, success/error counts, and threshold alerts so load, stress, benchmark, scalability, and monitoring suites can share the same metrics model.
