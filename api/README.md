@@ -54,6 +54,26 @@ api.addErrorHandler((error) => {
 api.addResponseLogger();
 ```
 
+`createApi()` normalizes bare origins to the versioned API base. For example,
+`createApi('http://localhost:3000')` targets `http://localhost:3000/api`.
+
+## Endpoint Matrix
+
+| Area | Method | Route | Client method |
+|------|--------|-------|---------------|
+| Trades | `GET` | `/api/trades` | `trades.getTrades(limit, offset)` |
+| Trades | `GET` | `/api/trades/:id` | `trades.getTrade(id)` |
+| Trades | `POST` | `/api/trades` | `trades.createTrade(data)` |
+| Trades | `PATCH` | `/api/trades/:id` | `trades.updateTrade(id, data)` |
+| Trades | `DELETE` | `/api/trades/:id` | `trades.deleteTrade(id)` |
+| Events | `GET` | `/api/events` | `events.getEvents(limit, tradeId?)` |
+| Events | `GET` | `/api/events/trade/:tradeId` | `events.getEventsByTrade(tradeId)` |
+| Events | `GET` | `/api/events/:id` | `events.getEvent(id)` |
+| Blockchain | `POST` | `/api/blockchain/fund` | `blockchain.fundTrade(tradeId, amount)` |
+| Blockchain | `POST` | `/api/blockchain/complete` | `blockchain.completeTrade(tradeId)` |
+| Blockchain | `POST` | `/api/blockchain/resolve` | `blockchain.resolveDispute(tradeId, resolution)` |
+| Blockchain | `GET` | `/api/blockchain/tx/:txHash` | `blockchain.getTransactionStatus(txHash)` |
+
 ### Trades API
 ```tsx
 // Get all trades
@@ -97,7 +117,7 @@ const fundTx = await api.blockchain.fundTrade('123', '100');
 const completeTx = await api.blockchain.completeTrade('123');
 
 // Resolve dispute
-const resolveTx = await api.blockchain.resolvDispute('123', 'release_to_buyer');
+const resolveTx = await api.blockchain.resolveDispute('123', 'release_to_buyer');
 
 // Check transaction status
 const status = await api.blockchain.getTransactionStatus(fundTx.txHash);
@@ -137,7 +157,7 @@ api/
 
 ### Request Interceptor
 ```tsx
-api.client.addRequestInterceptor((config) => {
+api.addRequestInterceptor((config) => {
   config.headers['X-Custom-Header'] = 'value';
   return config;
 });
@@ -145,7 +165,7 @@ api.client.addRequestInterceptor((config) => {
 
 ### Response Interceptor
 ```tsx
-api.client.addResponseInterceptor((response) => {
+api.addResponseInterceptor((response) => {
   console.log('Response:', response.data);
   return response;
 });
@@ -153,7 +173,7 @@ api.client.addResponseInterceptor((response) => {
 
 ### Error Interceptor
 ```tsx
-api.client.addErrorInterceptor(async (error) => {
+api.addErrorInterceptor(async (error) => {
   if (error.response?.status === 401) {
     // Handle unauthorized
   }
@@ -186,10 +206,17 @@ try {
 
 ```bash
 npm test
+npm run test:unit
+npm run test:endpoints
+npm run test:integration
+npm run test:contract
+npm run test:load
+npm run test:docs
 ```
 
 Tests cover:
-- Request/response interceptors
-- Error handling
-- Retry logic
-- API client initialization
+- Unit coverage for interceptors, config loading, retries, and endpoint mapping
+- Integration coverage for mocked HTTP flows across trades, events, and blockchain routes
+- Contract coverage for documented response shapes and endpoint registry drift
+- Load coverage for concurrent request handling under a representative in-memory workload
+- Documentation coverage to keep the README endpoint matrix aligned with the shipped client

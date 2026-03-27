@@ -1,7 +1,31 @@
 import { ApiClient } from './client';
 import { TradesApi, EventsApi, BlockchainApi } from './resources';
-import { ApiClientConfig } from './types';
+import {
+  ApiClientConfig,
+  ErrorInterceptor,
+  RequestInterceptor,
+  ResponseInterceptor,
+} from './types';
 import { loadConfig, ApiConfig } from './config';
+import { API_ENDPOINT_CONTRACTS } from './contracts';
+
+function normalizeBaseUrl(baseURL: string): string {
+  const trimmed = baseURL.replace(/\/+$/, '');
+
+  try {
+    const url = new URL(trimmed);
+    const normalizedPath = url.pathname.replace(/\/+$/, '');
+    if (!normalizedPath || normalizedPath === '/') {
+      url.pathname = '/api';
+    }
+    return url.toString().replace(/\/+$/, '');
+  } catch {
+    if (!trimmed || trimmed.endsWith('/api')) {
+      return trimmed;
+    }
+    return `${trimmed}/api`;
+  }
+}
 
 export class EscrowApi {
   private client: ApiClient;
@@ -16,11 +40,21 @@ export class EscrowApi {
     this.blockchain = new BlockchainApi(this.client);
   }
 
+  addRequestInterceptor(interceptor: RequestInterceptor) {
+    this.client.addRequestInterceptor(interceptor);
+  }
+
   addAuthToken(token: string) {
     this.client.addRequestInterceptor((config) => {
-      config.headers.Authorization = `Bearer ${token}`;
+      const headers = (config.headers ?? {}) as Record<string, string>;
+      headers.Authorization = `Bearer ${token}`;
+      config.headers = headers;
       return config;
     });
+  }
+
+  addResponseInterceptor(interceptor: ResponseInterceptor) {
+    this.client.addResponseInterceptor(interceptor);
   }
 
   addErrorHandler(handler: (error: any) => void) {
@@ -28,6 +62,10 @@ export class EscrowApi {
       handler(error);
       throw error;
     });
+  }
+
+  addErrorInterceptor(interceptor: ErrorInterceptor) {
+    this.client.addErrorInterceptor(interceptor);
   }
 
   addResponseLogger() {
@@ -39,7 +77,7 @@ export class EscrowApi {
 }
 
 export const createApi = (baseURL: string, mockEnabled = false): EscrowApi => {
-  const cfg = loadConfig({ baseUrl: baseURL, mockEnabled });
+  const cfg = loadConfig({ baseUrl: normalizeBaseUrl(baseURL), mockEnabled });
   return new EscrowApi({
     baseURL: cfg.baseUrl,
     timeout: cfg.timeoutMs,
@@ -52,4 +90,17 @@ export const createApi = (baseURL: string, mockEnabled = false): EscrowApi => {
   });
 };
 
+export { ApiClient } from './client';
+export { TradesApi, EventsApi, BlockchainApi } from './resources';
+export { loadConfig } from './config';
+export { API_ENDPOINT_CONTRACTS } from './contracts';
+export type { Trade, Event } from './models';
+export type {
+  ApiClientConfig,
+  ApiError,
+  ErrorInterceptor,
+  RequestInterceptor,
+  ResponseInterceptor,
+  RetryConfig,
+} from './types';
 export type { ApiConfig };

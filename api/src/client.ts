@@ -1,4 +1,9 @@
-import axios, { AxiosInstance, AxiosError, AxiosResponse } from 'axios';
+import axios, {
+  AxiosError,
+  AxiosInstance,
+  AxiosResponse,
+  InternalAxiosRequestConfig,
+} from 'axios';
 import { ApiClientConfig, ApiError, RetryConfig, RequestInterceptor, ResponseInterceptor, ErrorInterceptor } from './types';
 
 export class ApiClient {
@@ -25,20 +30,22 @@ export class ApiClient {
 
   private setupInterceptors() {
     this.client.interceptors.request.use((config) => {
+      let nextConfig: InternalAxiosRequestConfig = config;
       for (const interceptor of this.requestInterceptors) {
-        config = interceptor(config);
+        nextConfig = interceptor(nextConfig);
       }
-      return config;
+      return nextConfig;
     });
 
     this.client.interceptors.response.use(
-      (response) => {
+      (response: AxiosResponse) => {
+        let nextResponse = response;
         for (const interceptor of this.responseInterceptors) {
-          response = interceptor(response);
+          nextResponse = interceptor(nextResponse);
         }
-        return response;
+        return nextResponse;
       },
-      (error) => this.handleError(error)
+      (error: AxiosError) => this.handleError(error)
     );
   }
 
@@ -96,25 +103,25 @@ export class ApiClient {
 
   async get<T = any>(url: string, config?: any): Promise<T> {
     return this.retryRequest(() =>
-      this.client.get<T>(url, config).then((res) => res.data)
+      this.client.get<T>(url, config).then((res: AxiosResponse<T>) => res.data)
     );
   }
 
   async post<T = any>(url: string, data?: any, config?: any): Promise<T> {
     return this.retryRequest(() =>
-      this.client.post<T>(url, data, config).then((res) => res.data)
+      this.client.post<T>(url, data, config).then((res: AxiosResponse<T>) => res.data)
     );
   }
 
   async patch<T = any>(url: string, data?: any, config?: any): Promise<T> {
     return this.retryRequest(() =>
-      this.client.patch<T>(url, data, config).then((res) => res.data)
+      this.client.patch<T>(url, data, config).then((res: AxiosResponse<T>) => res.data)
     );
   }
 
   async delete<T = any>(url: string, config?: any): Promise<T> {
     return this.retryRequest(() =>
-      this.client.delete<T>(url, config).then((res) => res.data)
+      this.client.delete<T>(url, config).then((res: AxiosResponse<T>) => res.data)
     );
   }
 }

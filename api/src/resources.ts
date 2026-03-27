@@ -1,5 +1,5 @@
 import { ApiClient } from './client';
-import { Trade, Event } from './types';
+import { Event, Trade } from './models';
 
 export class TradesApi {
   constructor(private client: ApiClient) {}
@@ -54,8 +54,12 @@ export class BlockchainApi {
     return this.client.post(`/blockchain/complete`, { tradeId });
   }
 
-  async resolvDispute(tradeId: string, resolution: string): Promise<{ txHash: string }> {
+  async resolveDispute(tradeId: string, resolution: string): Promise<{ txHash: string }> {
     return this.client.post(`/blockchain/resolve`, { tradeId, resolution });
+  }
+
+  async resolvDispute(tradeId: string, resolution: string): Promise<{ txHash: string }> {
+    return this.resolveDispute(tradeId, resolution);
   }
 
   async getTransactionStatus(txHash: string): Promise<{ status: string; confirmed: boolean }> {

@@ -35,3 +35,5 @@ export interface ResponseInterceptor {
 export interface ErrorInterceptor {
   (error: any): Promise<any>;
 }
+
+export type { Trade, Event } from './models';

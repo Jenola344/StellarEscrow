@@ -7,7 +7,9 @@ This project uses a three-tier testing strategy:
 | Layer | Tool | Location | Purpose |
 |-------|------|----------|---------|
 | Unit | Jest + ts-jest | `*/src/**/*.test.ts(x)` | Functions, hooks, slices |
-| Integration | Jest + React Testing Library | `components/src/**/*.test.tsx` | Component behaviour |
+| Integration | Jest + React Testing Library / MSW | `components/src/**/*.test.tsx`, `api/src/**/*.integration.test.ts` | Component and API behaviour |
+| Contract | Jest + runtime validators | `api/src/**/*.contract.test.ts` | Endpoint method/path/shape guarantees |
+| Load | Jest + concurrent request harness | `api/src/**/*.load.test.ts` | API concurrency smoke coverage |
 | E2E | Cypress | `components/cypress/e2e/` | Full user flows |
 
 ## Running Tests
@@ -18,6 +20,12 @@ npm test
 
 # With coverage reports
 npm run test:coverage
+
+# API package suites
+npm run test:integration --workspace=api
+npm run test:contract --workspace=api
+npm run test:load --workspace=api
+npm run test:docs --workspace=api
 
 # E2E tests (requires app running on localhost:3000)
 npm run test:e2e
