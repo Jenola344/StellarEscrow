@@ -93,9 +93,9 @@ resource "aws_ecs_task_definition" "api" {
     }]
 
     environment = [
-      { name = "NODE_ENV",                             value = var.environment },
-      { name = "PORT",                                 value = tostring(var.container_port) },
-      { name = "STELLAR_ESCROW__STELLAR__NETWORK",     value = var.stellar_network },
+      { name = "NODE_ENV", value = var.environment },
+      { name = "PORT", value = tostring(var.container_port) },
+      { name = "STELLAR_ESCROW__STELLAR__NETWORK", value = var.stellar_network },
       { name = "STELLAR_ESCROW__STELLAR__CONTRACT_ID", value = var.stellar_contract_id },
       { name = "STELLAR_ESCROW__STELLAR__HORIZON_URL", value = var.stellar_horizon_url },
     ]
